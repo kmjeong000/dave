@@ -1,16 +1,16 @@
 repositories:
   dockwater:
     type: git
-    url: https://github.com/IOES-Lab/dockwater.git
+    url: https://github.com/kmjeong000/dockwater.git
     version: main
 
   rocker:
     type: git
-    url: https://github.com/IOES-Lab/rocker.git
+    url: https://github.com/kmjeong000/rocker.git
     version: main
 
   dave:
     type: git
-    url: https://github.com/IOES-Lab/dave.git
+    url: https://github.com/kmjeong000/dave.git
     version: ros2
 
