@@ -1,0 +1,65 @@
+<?xml version="1.0"?>
+<sdf version="1.7">
+  <model name="sailboat">
+
+		<link name="base_link">
+			<inertial>
+				<pose>0 0 0 0 0 0</pose>
+				<mass>49.895</mass>
+				<inertia>
+          <ixx>5.55</ixx>
+          <ixy>0</ixy>
+          <ixz>0</ixz>
+          <iyy>40.91</iyy>
+          <iyz>0</iyz>
+          <izz>45.06</izz>
+				</inertia>
+			</inertial>
+
+			<visual name="hull_visual">
+				<pose>0 0 0 0 0 0</pose>
+				<geometry>
+					<mesh>
+						<scale>1 1 1</scale>
+						<uri>model://meshes/sailboat/hull.dae</uri>
+					</mesh>
+				</geometry>
+			</visual>
+
+			<collision name="hull_collision">
+				<pose>0 0 0 0 0 0</pose>
+				<geometry>
+					<box>
+						<size>1.08 3.11 0.41</scale>
+					</box>
+				</geometry>
+			</collision>
+		</link>
+
+		<link name="camera_link">
+			<pose>0 1.82 0.1284 0 0 0</pose>
+			<inertial>
+				<mass>0.1</mass>
+				<inertia>
+          <ixx>0.000166667</ixx>
+          <iyy>0.000166667</iyy>
+          <izz>0.000166667</izz>
+        </inertia>
+			</inertial>
+			<collision name="collision">
+				<geometry>
+					<box>
+						<size>0.1 0.1 0.1</size>
+					</box>
+				</geometry>
+			</collision>
+			<visual name="visual">
+				<geometry>
+					<box>
+						<size>0.1 0.1 0.1</size>
+					</box>
+				</geometry>
+			</visual>
+			<sensor name="camera_sensor" type="rgbd_camera">
+				<update_rate>10</update_rate>
+				<visualize>
