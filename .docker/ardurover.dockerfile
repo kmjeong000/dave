@@ -82,18 +82,18 @@ FROM woensugchoi/ubuntu-arm-rdp-base:latest
 ARG USER=docker
 
 # ROS-Gazebo arg
-ARG BRANCH="ros2"
+ARG BRANCH="rover"
 ARG ROS_DISTRO="jazzy"
 
 # Update OS
 RUN apt update && apt full-upgrade -y && apt autoremove -y
 
 # Install ROS-Gazebo framework
-ADD https://raw.githubusercontent.com/IOES-Lab/dave/$BRANCH/\
+ADD https://raw.githubusercontent.com/kmjeong000/dave/$BRANCH/\
 extras/ros-jazzy-gz-harmonic-install.sh install.sh
 RUN sudo bash install.sh
 
-# Prereqs for Ardupilot - Ardusub
+# Prereqs for Ardupilot - Ardurover
 ENV DEBIAN_FRONTEND=noninteractive
 ENV DEBCONF_NONINTERACTIVE_SEEN=true
 # hadolint ignore=DL3008
@@ -118,7 +118,7 @@ RUN wget https://raw.githubusercontent.com/mavlink/mavros/master/mavros/scripts/
 # Download the background image from GitHub raw content URL
 # hadolint ignore=DL3047
 RUN wget -O /usr/share/backgrounds/custom-background.png -q \
-    https://raw.githubusercontent.com/IOES-Lab/dave/$BRANCH/\
+    https://raw.githubusercontent.com/kmjeong000/dave/$BRANCH/\
 extras/background.png && \
     mv /usr/share/backgrounds/warty-final-ubuntu.png \
         /usr/share/backgrounds/warty-final-ubuntu.png.bak && \
@@ -127,15 +127,15 @@ extras/background.png && \
     cp /usr/share/backgrounds/warty-final-ubuntu.png \
         /usr/share/backgrounds/ubuntu-wallpaper-d.png
 
-# Install Ardupilot - Ardusub
+# Install Ardupilot - Ardurover .docker/ardurover.dockerfile
 USER docker
-RUN wget -O /tmp/install.sh https://raw.githubusercontent.com/IOES-Lab/dave/$BRANCH/extras/ardusub-ubuntu-install-local.sh
+RUN wget -O /tmp/install.sh https://raw.githubusercontent.com/kmjeong000/dave/$BRANCH/extras/ardurover-ubuntu-install-local.sh
 RUN chmod +x /tmp/install.sh && bash /tmp/install.sh
 
 # Set up Dave workspace
 ENV DAVE_UNDERLAY=/home/$USER/dave_ws
 WORKDIR $DAVE_UNDERLAY/src
-RUN wget -O /home/$USER/dave_ws/dave.repos -q https://raw.githubusercontent.com/IOES-Lab/dave/$BRANCH/\
+RUN wget -O /home/$USER/dave_ws/dave.repos -q https://raw.githubusercontent.com/kmjeong000/dave/$BRANCH/\
 extras/repos/dave.$ROS_DISTRO.repos
 RUN vcs import --shallow --input "/home/$USER/dave_ws/dave.repos"
 
@@ -170,6 +170,12 @@ RUN echo "source /opt/ros/jazzy/setup.bash" >> ~/.bashrc && \
 RUN echo "export XDG_RUNTIME_DIR=~/.xdg_log" >> ~/.bashrc && \
     echo "unset SESSION_MANAGER" >> ~/.bashrc
 
+# Create and activate Python virtual environment
+RUN python3 -m venv /home/docker/.venv && \
+    . /home/docker/.venv/bin/activate && \
+    pip install --upgrade pip setuptools wheel && \
+    echo "alias venv='source /home/docker/.venv/bin/activate'" >> ~/.bashrc
+ENV PATH="/home/docker/.venv/bin:$PATH"
 # Create and write the welcome message to a new file
 RUN mkdir -p /home/docker/.config/autostart && \
     printf '\033[1;36m =====\n' >> ~/.hi && \
@@ -186,7 +192,9 @@ RUN mkdir -p /home/docker/.config/autostart && \
     printf '\033[1;32m\n =====\n\033[0m' >> ~/.hi && \
     printf "\\033[1;32m 👋 Hi! This is Docker virtual environment for DAVE\n\\033[0m" \
     >> ~/.hi && \
-    printf "\\033[1;33m\tROS2 Jazzy - Gazebo Harmonic (w ardupilot(ardusub) + mavros)\n\n\n\\033[0m" \
+    printf "\\033[1;33m\tROS2 Jazzy - Gazebo Harmonic (w ardupilot(ardurover) + mavros)\n\n\n\\033[0m" \
+    >> ~/.hi && \
+    printf "\\033[1;33m\t💡 Virtual environment shortcut: 'venv' (type this command to activate the environment)\n\n\n\\033[0m" \
     >> ~/.hi
 
 # Remove sudo message
