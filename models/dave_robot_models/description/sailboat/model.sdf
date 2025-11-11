@@ -1,6 +1,7 @@
 <?xml version="1.0"?>
 <sdf version="1.7">
   <model name="sailboat">
+
     <enable_wind>true</enable_wind>
 
 	  <link name="base_link">
@@ -9,10 +10,10 @@
   			<mass>49.895</mass>
 	  		<inertia>
           <ixx>26.811</ixx>
-          <ixy>-0.009</ixy>
-          <ixz>0.001</ixz>
+          <ixy>0</ixy>
+          <ixz>0</ixz>
           <iyy>3.239</iyy>
-          <iyz>0.304</iyz>
+          <iyz>0</iyz>
           <izz>29.308</izz>
 			  </inertia>
   		</inertial>
@@ -41,10 +42,10 @@
 			  <mass>3.0</mass>
   			<inertia>
           <ixx>2.517</ixx>
-          <ixy>-0.006</ixy>
-          <ixz>-0.012</ixz>
+          <ixy>0</ixy>
+          <ixz>0</ixz>
           <iyy>2.016</iyy>
-          <iyz>-0.394</iyz>
+          <iyz>0</iyz>
           <izz>0.508</izz>
   			</inertia>
       </inertial>
@@ -95,7 +96,7 @@
           <ixy>0.0</ixy>
           <ixz>0.0</ixz>
           <iyy>0.085</iyy>
-          <iyz>-0.014</iyz>
+          <iyz>0</iyz>
           <izz>0.017</izz>
 		  	</inertia>
       </inertial>
@@ -143,9 +144,9 @@
         <inertia>
           <ixx>0.365</ixx>
           <ixy>0.0</ixy>
-          <ixz>-0.002</ixz>
-          <iyy>0.320</iyy>
-          <iyz>-0.076</iyz>
+          <ixz>0.0</ixz>
+          <iyy>0.32</iyy>
+          <iyz>0.0</iyz>
           <izz>0.045</izz>
 		  	</inertia>
       </inertial>
@@ -319,28 +320,43 @@
     <plugin 
       filename="gz-sim-hydrodynamics-system"
       name="gz::sim::systems::Hydrodynamics">
-      <disable_coriolis>false</disable_coriolis>
-      <disable_added_mass>true</disable_added_mass>
-
-      <water_density>1028</water_density>
       <link_name>base_link</link_name>
+      <water_density>1028</water_density>
 
-      <!-- Linear Drag Coefficients -->
-      <xU>-1.46</xU>
-      <yV>-6.63</yV>
-      <zW>-10.31</zW>
-      <kP>-3.00</kP>
-      <mQ>-3.53</mQ>
-      <nR>-15.95</nR>
+      <hydrodynamics>
+        <damping_on>1</damping_on>
+        <viscous_drag_on>1</viscous_drag_on>
+        <pressure_drag_on>1</pressure_drag_on>
 
-      <!-- Quadratic Drag Coefficients -->
-      <xUabsU>-146.44</xUabsU>
-      <yVabsV>-662.53</yVabsV>
-      <zWabsW>-1031.45</zWabsW>
-      <kPabsP>-299.55</kPabsP>
-      <mQabsQ>-352.52</mQabsQ>
-      <nRabsR>-1594.90</nRabsR>
+        <cDampL1>3.0e-5</cDampL1>
+        <cDampL2>3.0e-5</cDampL2>
+        <cDampR1>5.0e-5</cDampR1>
+        <cDampR2>5.0e-5</cDampR2>
+
+        <cPDrag1>13.52</cPDrag1>
+        <cPDrag2>13.52</cPDrag2>
+        <fPDrag>0.50</fPDrag>
+
+        <cSDrag1>230.29</cSDrag1>
+        <cSDrag2>230.29</cSDrag2>
+        <fSDrag>0.50</fSDrag>
+
+        <vRDrag>1.20</vRDrag>
+      </hydrodynamics>
     </plugin>
+    <plugin 
+      filename="gz-sim-hydrodynamics-system"
+      name="gz::sim::systems::Hydrodynamics">
+      <link_name>rudder_link</link_name>
+      <water_density>1028</water_density>
+    </plugin>
+    <plugin 
+      filename="gz-sim-hydrodynamics-system"
+      name="gz::sim::systems::Hydrodynamics">
+      <link_name>daggerboard_link</link_name>
+      <water_density>1028</water_density>
+    </plugin>
+
 
     <plugin
       filename="gz-sim-imu-system"
