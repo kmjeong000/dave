@@ -93,6 +93,11 @@ ADD https://raw.githubusercontent.com/kmjeong000/dave/$BRANCH/\
 extras/ros-jazzy-gz-harmonic-install.sh install.sh
 RUN sudo bash install.sh
 
+# Install wave sim dependencies
+RUN apt-get update && \
+    apt-get install -y libcgal-dev libfftw3-dev \
+    && rm -rf /var/lib/apt/lists/
+
 # Prereqs for Ardupilot - Ardurover
 ENV DEBIAN_FRONTEND=noninteractive
 ENV DEBCONF_NONINTERACTIVE_SEEN=true
@@ -151,6 +156,18 @@ USER docker
 WORKDIR $DAVE_UNDERLAY
 RUN . "/opt/ros/${ROS_DISTRO}/setup.sh" && colcon build
 
+#Build wave sim
+WORKDIR $DAVE_UNDERLAY/src/dave/gazebo/dave_gz_world_plugins/ocean-waves
+RUN colcon build
+
+#Build wave sim GUI plugin
+WORKDIR $DAVE_UNDERLAY/src/dave/gazebo/dave_gz_world_plugins/ocean-waves/src/gui/plugins/waves_control
+RUN mkdir build && cd build && cmake .. && make
+
+#Patch for wave sim
+USER root
+RUN ln -s /opt/ros/jazzy/opt/gz_ogre_next_vendor/lib/libOgreNextMain.so.2.3.3 /opt/ros/jazzy/opt/gz_ogre_next_vendor/libOgreNextMain.so.2.3.1
+
 # Set User as user
 USER docker
 RUN echo "source /opt/ros/jazzy/setup.bash" >> ~/.bashrc && \
@@ -161,7 +178,9 @@ RUN echo "source /opt/ros/jazzy/setup.bash" >> ~/.bashrc && \
     echo "export PYTHONPATH=\$PYTHONPATH:/opt/gazebo/install/lib/python" >> ~/.bashrc && \
     echo "export PATH=/home/$USER/ardupilot_ws/ardupilot/Tools/autotest:\$PATH" >> ~/.bashrc && \
     echo "export PATH=/home/$USER/ardupilot_ws/ardupilot/build/sitl/bin:\$PATH" >> ~/.bashrc && \
-    echo "export GZ_SIM_SYSTEM_PLUGIN_PATH=/home/$USER/ardupilot_ws/ardupilot_gazebo/build:\$GZ_SIM_SYSTEM_PLUGIN_PATH" >> ~/.bashrc && \
+    echo "export GZ_SIM_SYSTEM_PLUGIN_PATH=/home/$USER/ardupilot_ws/ardupilot_gazebo/build:\$GZ_SIM_SYSTEM_PLUGIN_PATH:/home/docker/dave_ws/src/dave/gazebo/dave_gz_world_plugins/ocean-waves/install/wave/lib" >> ~/.bashrc && \
+    echo "export GZ_GUI_PLUGIN_PATH=\$GZ_GUI_PLUGIN_PATH:/home/docker/dave_ws/src/dave/gazebo/dave_gz_world_plugins/ocean-waves/src/gui/plugins/waves_control/build" >> ~/.bashrc && \
+    echo "export LD_LIBRARY_PATH=/home/docker/dave_ws/src/dave/gazebo/dave_gz_world_plugins/ocean-waves/install/wave/lib:\$LD_LIBRARY_PATH" >> ~/.bashrc && \
     echo "export GZ_SIM_RESOURCE_PATH=/home/$USER/ardupilot_ws/ardupilot_gazebo/models:/home/$USER/ardupilot_ws/ardupilot_gazebo/worlds:\$GZ_SIM_RESOURCE_PATH" >> ~/.bashrc && \
     echo "\n\n" >> ~/.bashrc && echo "if [ -d ~/HOST ]; then chown $USER:$USER ~/HOST; fi" >> ~/.bashrc  && \
     echo "export PS1='\[\e[1;36m\]\u@DAVE_docker\[\e[0m\]\[\e[1;34m\](\$(hostname | cut -c1-12))\[\e[0m\]:\[\e[1;34m\]\w\[\e[0m\]\$ '" >>  ~/.bashrc
@@ -176,6 +195,7 @@ RUN python3 -m venv /home/docker/.venv && \
     pip install --upgrade pip setuptools wheel && \
     echo "alias venv='source /home/docker/.venv/bin/activate'" >> ~/.bashrc
 ENV PATH="/home/docker/.venv/bin:$PATH"
+
 # Create and write the welcome message to a new file
 RUN mkdir -p /home/docker/.config/autostart && \
     printf '\033[1;36m =====\n' >> ~/.hi && \
