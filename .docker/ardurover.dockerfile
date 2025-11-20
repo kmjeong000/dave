@@ -166,7 +166,7 @@ RUN mkdir build && cd build && cmake .. && make
 
 #Patch for wave sim
 USER root
-RUN ln -s /opt/ros/jazzy/opt/gz_ogre_next_vendor/lib/libOgreNextMain.so.2.3.3 /opt/ros/jazzy/opt/gz_ogre_next_vendor/libOgreNextMain.so.2.3.1
+RUN ln -s /opt/ros/jazzy/opt/gz_ogre_next_vendor/lib/libOgreNextMain.so.2.3.3 /opt/ros/jazzy/opt/gz_ogre_next_vendor/lib/libOgreNextMain.so.2.3.1
 
 # Set User as user
 USER docker

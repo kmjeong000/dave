@@ -6,18 +6,19 @@
 
 	  <link name="base_link">
 		  <inertial>
-			  <pose>-0.004305 0.229980 -0.009473 0 0 0</pose>
+			  <pose>-0.001323 0.000769 0.097199 0 0 0</pose>
   			<mass>49.895</mass>
 	  		<inertia>
-          <ixx>26.811</ixx>
+          <ixx>30.09</ixx>
           <ixy>0</ixy>
           <ixz>0</ixz>
-          <iyy>3.239</iyy>
+          <iyy>3.63</iyy>
           <iyz>0</iyz>
-          <izz>29.308</izz>
+          <izz>32.90</izz>
 			  </inertia>
   		</inertial>
   		<visual name="hull_visual">
+        <cast_shadows>true</cast_shadows>
 	  		<pose>0 0 0 0 0 0</pose>
 		  	<geometry>
 			  	<mesh>
@@ -25,31 +26,40 @@
 					  <uri>model://meshes/sailboat/hull.stl</uri>
   				</mesh>
 	  		</geometry>
+        <material>
+          <ambient>0.1 0.25 0.3 1</ambient>
+          <diffuse>0.5 0.55 0.6 1</diffuse>
+          <specular>0.4 0.4 0.4 1</specular>
+          <emissive>0 0 0 1</emissive>
+        </material>
 		  </visual>
   		<collision name="hull_collision">
 	  		<pose>0 0 0 0 0 0</pose>
 		  	<geometry>
-			  	<box>
-				  	<size>1.078 3.103 0.378</size>
-  				</box>
+          <mesh>
+            <scale>1 1 1</scale>
+            <uri>model://meshes/sailboat/hull_collision.stl</uri>
+          </mesh>
 	  		</geometry>
 		  </collision>
   	</link>
 
     <link name="sail_link">
+      <self_collide>false</self_collide>
       <inertial>
-        <pose>-0.059323 0.622302 1.818636 0 0 0</pose>
-			  <mass>3.0</mass>
+        <pose>0 0 0 0 0 0</pose>
+			  <mass>15.0</mass>
   			<inertia>
-          <ixx>2.517</ixx>
+          <ixx>13.09</ixx>
           <ixy>0</ixy>
           <ixz>0</ixz>
-          <iyy>2.016</iyy>
+          <iyy>15.39</iyy>
           <iyz>0</iyz>
-          <izz>0.508</izz>
+          <izz>2.714</izz>
   			</inertia>
       </inertial>
       <visual name="visual">
+        <cast_shadows>true</cast_shadows>
         <pose>0 0 0 0 0 0</pose>
         <geometry>
           <mesh>
@@ -57,19 +67,26 @@
             <uri>model://meshes/sailboat/sail.stl</uri>
           </mesh>
         </geometry>
+        <material>
+          <ambient>0.17 0.21 0.25 1</ambient>
+          <diffuse>0.42 0.47 0.51 1</diffuse>
+          <specular>0.4 0.4 0.4 1</specular>
+          <emissive>0 0 0 1</emissive>
+        </material>
       </visual>
       <collision name="sail_collision">
         <pose>0 0 0 0 0 0</pose>
         <geometry>
-          <box>
-            <size>0.171 2.044 4.149</size>
-          </box>
+          <mesh>
+            <scale>1 1 1</scale>
+            <uri>model://meshes/sailboat/sail_collision.stl</uri>
+          </mesh>
         </geometry>
       </collision>
     </link>
 
     <joint name="sail_joint" type="revolute">
-      <pose>0 0 0 0 0 0</pose>
+      <pose>0.000564 0.926389 0.243424 0 0 0</pose>
       <parent>base_link</parent>
       <child>sail_link</child>
       <axis>
@@ -81,45 +98,55 @@
           <velocity>2.0</velocity>
         </limit>
         <dynamics>
-          <damping>0.05</damping>
+          <damping>0.5</damping>
           <friction>0.0</friction>
         </dynamics>
       </axis>
     </joint>
 
     <link name="rudder_link">
+      <self_collide>false</self_collide>
       <inertial>
-        <pose>-0.004030 -1.305001 -0.085000 0 0 0</pose>
+        <pose>0.002863 -1.635017 -0.003987 0 0 0</pose>
         <mass>2.0</mass>
         <inertia>
-          <ixx>0.101</ixx>
+          <ixx>0.132</ixx>
           <ixy>0.0</ixy>
           <ixz>0.0</ixz>
-          <iyy>0.085</iyy>
+          <iyy>0.111</iyy>
           <iyz>0</iyz>
-          <izz>0.017</izz>
+          <izz>0.022</izz>
 		  	</inertia>
       </inertial>
       <visual name="visual">
+        <pose>0 0 0 0 0 0</pose>
+        <cast_shadows>true</cast_shadows>
         <geometry>
           <mesh>
             <scale>1 1 1</scale>
             <uri>model://meshes/sailboat/rudder.stl</uri>
           </mesh>
         </geometry>
+        <material>
+          <ambient>0.17 0.21 0.25 1</ambient>
+          <diffuse>0.42 0.47 0.51 1</diffuse>
+          <specular>0.4 0.4 0.4 1</specular>
+          <emissive>0 0 0 1</emissive>
+        </material>
       </visual>
       <collision name="rudder_collision">
         <pose>0 0 0 0 0 0</pose>
         <geometry>
-          <box>
-            <size>0.064 0.551 0.695</size>
-          </box>
+          <mesh>
+            <scale>1 1 1</scale>
+            <uri>model://meshes/sailboat/rudder_collision.stl</uri>
+          </mesh>
         </geometry>
       </collision>
     </link>
 
     <joint name="rudder_joint" type="revolute">
-      <pose>0 0 0 0 0 0</pose>
+      <pose>0.001838 -1.542248 0.183647 0 0 0</pose>
       <parent>base_link</parent>
       <child>rudder_link</child>
       <axis>
@@ -131,7 +158,7 @@
           <velocity>3.0</velocity>
         </limit>
         <dynamics>
-          <damping>0.08</damping>
+          <damping>0.58</damping>
           <friction>0.01</friction>
         </dynamics>
       </axis>
@@ -139,36 +166,44 @@
 
     <link name="daggerboard_link">
       <inertial>
-        <pose>-0.006 0.358 -0.179 0 0 0</pose>
+        <pose>0.000710 0.141003 -0.080877 0 0 0</pose>
         <mass>8.0</mass>
         <inertia>
-          <ixx>0.365</ixx>
+          <ixx>0.408</ixx>
           <ixy>0.0</ixy>
           <ixz>0.0</ixz>
-          <iyy>0.32</iyy>
+          <iyy>0.362</iyy>
           <iyz>0.0</iyz>
-          <izz>0.045</izz>
+          <izz>0.049</izz>
 		  	</inertia>
       </inertial>
       <visual name="visual">
+        <cast_shadows>true</cast_shadows>
         <geometry>
           <mesh>
             <scale>1 1 1</scale>
             <uri>model://meshes/sailboat/daggerboard.stl</uri>
           </mesh>
         </geometry>
+        <material>
+          <ambient>0.17 0.21 0.25 1</ambient>
+          <diffuse>0.42 0.47 0.51 1</diffuse>
+          <specular>0.4 0.4 0.4 1</specular>
+          <emissive>0 0 0 1</emissive>
+        </material>
       </visual>
       <collision name="daggerboard_collision">
         <pose>0 0 0 0 0 0</pose>
         <geometry>
-          <box>
-            <size>0.049 0.402 0.743</size>
-          </box>
+          <mesh>
+            <scale>1 1 1</scale>
+            <uri>model://meshes/sailboat/daggerboard_collision.stl</uri>
+          </mesh>
         </geometry>
       </collision>
     </link>  
     <joint name="daggerboard_joint" type="fixed">
-      <pose>0 0 0 0 0 0</pose>
+      <pose>0.000710 0.141003 -0.080877 0 0 0</pose>
       <parent>base_link</parent>
       <child>daggerboard_link</child>
     </joint>
@@ -249,7 +284,7 @@
     </joint>
 
     <link name="camera_link">
-      <pose relative_to="base_link">0 1.2 0.378 0 0 0</pose>
+      <pose relative_to="base_link">0 1.0 0.23 0 0 1.5078</pose>
       <visual name="visual">
         <geometry>
           <mesh>
@@ -318,45 +353,72 @@
     </joint>
 
     <plugin 
-      filename="gz-sim-hydrodynamics-system"
+      filename="wave-hydrodynamics-system"
       name="gz::sim::systems::Hydrodynamics">
-      <link_name>base_link</link_name>
-      <water_density>1028</water_density>
-
+      <enable>sailboat::base_link</enable>
       <hydrodynamics>
         <damping_on>1</damping_on>
         <viscous_drag_on>1</viscous_drag_on>
         <pressure_drag_on>1</pressure_drag_on>
 
-        <cDampL1>3.0e-5</cDampL1>
-        <cDampL2>3.0e-5</cDampL2>
-        <cDampR1>5.0e-5</cDampR1>
-        <cDampR2>5.0e-5</cDampR2>
+        <cDampL1>1.0e-5</cDampL1>
+        <cDampL2>1.0e-5</cDampL2>
+        <cDampR1>1.0e-5</cDampR1>
+        <cDampR2>1.0e-5</cDampR2>
 
-        <cPDrag1>13.52</cPDrag1>
-        <cPDrag2>13.52</cPDrag2>
-        <fPDrag>0.50</fPDrag>
+        <cPDrag1>240.0</cPDrag1>
+        <cPDrag2>240.0</cPDrag2>
+        <fPDrag>0.45</fPDrag>
 
-        <cSDrag1>230.29</cSDrag1>
-        <cSDrag2>230.29</cSDrag2>
-        <fSDrag>0.50</fSDrag>
+        <cSDrag1>320.0</cSDrag1>
+        <cSDrag2>320.0</cSDrag2>
+        <fSDrag>0.45</fSDrag>
 
-        <vRDrag>1.20</vRDrag>
+        <vRDrag>1.9</vRDrag>
       </hydrodynamics>
     </plugin>
     <plugin 
-      filename="gz-sim-hydrodynamics-system"
+      filename="wave-hydrodynamics-system"
       name="gz::sim::systems::Hydrodynamics">
-      <link_name>rudder_link</link_name>
-      <water_density>1028</water_density>
+      <enable>sailboat::rudder_link</enable>
+      <hydrodynamics>
+        <damping_on>1</damping_on>
+        <viscous_drag_on>1</viscous_drag_on>
+        <pressure_drag_on>0</pressure_drag_on>
+
+        <cDampL1>2.0e-6</cDampL1>
+        <cDampL2>2.0e-6</cDampL2>
+        <cDampR1>2.0e-6</cDampR1>
+        <cDampR2>2.0e-6</cDampR2>
+
+        <cSDrag1>200.0</cSDrag1>
+        <cSDrag2>200.0</cSDrag2>
+        <fSDrag>0.5</fSDrag>
+
+        <vRDrag>0.9</vRDrag>
+      </hydrodynamics>
     </plugin>
     <plugin 
-      filename="gz-sim-hydrodynamics-system"
+      filename="wave-hydrodynamics-system"
       name="gz::sim::systems::Hydrodynamics">
-      <link_name>daggerboard_link</link_name>
-      <water_density>1028</water_density>
-    </plugin>
+      <enable>sailboat::daggerboard_link</enable>
+      <hydrodynamics>
+        <damping_on>1</damping_on>
+        <viscous_drag_on>1</viscous_drag_on>
+        <pressure_drag_on>0</pressure_drag_on>
 
+        <cDampL1>3.0e-6</cDampL1>
+        <cDampL2>3.0e-6</cDampL2>
+        <cDampR1>3.0e-6</cDampR1>
+        <cDampR2>3.0e-6</cDampR2>
+
+        <cSDrag1>280.0</cSDrag1>
+        <cSDrag2>280.0</cSDrag2>
+        <fSDrag>0.5</fSDrag>
+        
+        <vRDrag>1.1</vRDrag>
+      </hydrodynamics>
+    </plugin>
 
     <plugin
       filename="gz-sim-imu-system"

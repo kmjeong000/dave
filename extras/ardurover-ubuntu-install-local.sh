@@ -23,7 +23,7 @@ Tools/environment_install/install-prereqs-ubuntu.sh -y
 
 # Build ArduRover
 modules/waf/waf-light configure --board sitl \
-  && modules/waf/waf-light build --target bin/ardurover
+  && modules/waf/waf-light build --target bin/rover
 
 # Clone ardupilot_gazebo code
 cd "/home/$USER/ardupilot_ws" || exit
