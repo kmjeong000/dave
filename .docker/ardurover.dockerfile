@@ -86,7 +86,7 @@ ARG BRANCH="rover"
 ARG ROS_DISTRO="jazzy"
 
 # Update OS
-RUN apt update && apt full-upgrade -y && apt autoremove -y
+RUN apt update && apt upgrade -y && apt autoremove -y
 
 # Install ROS-Gazebo framework
 ADD https://raw.githubusercontent.com/kmjeong000/dave/$BRANCH/\
@@ -111,6 +111,8 @@ RUN wget https://packages.osrfoundation.org/gazebo.gpg -O /usr/share/keyrings/pk
     libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev \
     libgz-sim8-dev rapidjson-dev libopencv-dev libasio-dev \
     gstreamer1.0-plugins-bad gstreamer1.0-libav gstreamer1.0-gl \
+    # mavproxy setting
+    python3-dev python3-opencv python3-pip python3-matplotlib python3-lxml \
     && rm -rf /var/lib/apt/lists/
 # Install mavros
 RUN apt-get update && \
@@ -193,8 +195,13 @@ RUN echo "export XDG_RUNTIME_DIR=~/.xdg_log" >> ~/.bashrc && \
 RUN python3 -m venv /home/docker/.venv && \
     . /home/docker/.venv/bin/activate && \
     pip install --upgrade pip setuptools wheel && \
+    pip install PyYAML pygame mavproxy pexpect packaging urllib3 empy==3.3.4 future && \
     echo "alias venv='source /home/docker/.venv/bin/activate'" >> ~/.bashrc
 ENV PATH="/home/docker/.venv/bin:$PATH"
+
+RUN mkdir -p /usr/local/share/GeographicLib/geoids && \
+    ln -s /usr/share/GeographicLib/geoids/egm96-5.pgm /usr/local/share/GeographicLib/geoids/egm96-5.pgm && \
+    chmod 644 /usr/share/GeographicLib/geoids/egm96-5.pgm
 
 # Create and write the welcome message to a new file
 RUN mkdir -p /home/docker/.config/autostart && \
