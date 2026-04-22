@@ -41,3 +41,7 @@
 
 # Mac
 .DS_Store
+
+build/
+install/
+log/
