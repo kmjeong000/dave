@@ -1,0 +1,13 @@
+build
+install
+log
+.git
+.gitignore
+.vscode
+.idea
+**/__pycache__
+**/*.pyc
+**/*.pyo
+**/.pytest_cache
+**/.mypy_cache
+**/.DS_Store
