@@ -22,6 +22,12 @@ def launch_setup(context, *args, **kwargs):
     pitch = LaunchConfiguration("pitch")
     yaw = LaunchConfiguration("yaw")
     use_ned_frame = LaunchConfiguration("use_ned_frame")
+    start_sitl = LaunchConfiguration("start_sitl")
+    start_mavros = LaunchConfiguration("start_mavros")
+    mavproxy_args = LaunchConfiguration("mavproxy_args")
+    mavros_fcu_url = LaunchConfiguration("mavros_fcu_url")
+    sitl_start_delay = LaunchConfiguration("sitl_start_delay")
+    mavros_start_delay = LaunchConfiguration("mavros_start_delay")
 
     if world_name.perform(context) != "empty.sdf":
         world_name = LaunchConfiguration("world_name").perform(context)
@@ -77,6 +83,7 @@ def launch_setup(context, *args, **kwargs):
             "gui": gui,
             "use_sim_time": use_sim_time,
             "namespace": namespace,
+            "world_name": "waves",
             "x": x,
             "y": y,
             "z": z,
@@ -84,6 +91,12 @@ def launch_setup(context, *args, **kwargs):
             "pitch": pitch,
             "yaw": yaw,
             "use_ned_frame": use_ned_frame,
+            "start_sitl": start_sitl,
+            "start_mavros": start_mavros,
+            "mavproxy_args": mavproxy_args,
+            "mavros_fcu_url": mavros_fcu_url,
+            "sitl_start_delay": sitl_start_delay,
+            "mavros_start_delay": mavros_start_delay,
         }.items(),
     )
 
@@ -98,8 +111,8 @@ def generate_launch_description():
     args = [
         DeclareLaunchArgument(
             "paused",
-            default_value="true",
-            description="Start the simulation paused",
+            default_value="false",
+            description="Start the simulation continuously",
         ),
         DeclareLaunchArgument(
             "gui",
@@ -170,6 +183,36 @@ def generate_launch_description():
             "use_ned_frame",
             default_value="false",
             description="Flag to indicate whether to use the north-east-down frame",
+        ),
+        DeclareLaunchArgument(
+            "start_sitl",
+            default_value="true",
+            description="Start ArduPilot SITL for robot configs that support it",
+        ),
+        DeclareLaunchArgument(
+            "start_mavros",
+            default_value="true",
+            description="Start MAVROS for robot configs that support it",
+        ),
+        DeclareLaunchArgument(
+            "mavproxy_args",
+            default_value="--out=udp:127.0.0.1:14550 --out=udp:127.0.0.1:14560",
+            description="MAVProxy output arguments passed to SITL launch helpers",
+        ),
+        DeclareLaunchArgument(
+            "mavros_fcu_url",
+            default_value="udp://:14560@127.0.0.1:14560",
+            description="MAVROS FCU URL for robot configs that support it",
+        ),
+        DeclareLaunchArgument(
+            "sitl_start_delay",
+            default_value="5.0",
+            description="Seconds to wait before starting SITL",
+        ),
+        DeclareLaunchArgument(
+            "mavros_start_delay",
+            default_value="8.0",
+            description="Seconds to wait before starting MAVROS",
         ),
     ]
 

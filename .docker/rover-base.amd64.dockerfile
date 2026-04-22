@@ -3,10 +3,16 @@ FROM osrf/ros:${ROS_DISTRO}-desktop-full
 ARG ROS_DISTRO
 ARG BRANCH="rover"
 
+ARG USERNAME=docker
+
 SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 
 ENV DEBIAN_FRONTEND=noninteractive
 ENV DEBCONF_NONINTERACTIVE_SEEN=true
+
+RUN useradd -m -s /bin/bash ${USERNAME} 2>/dev/null || true && \
+    mkdir -p /tmp/runtime-${USERNAME} && \
+    chown -R ${USERNAME}:${USERNAME} /tmp/runtime-${USERNAME}
 
 # Install Utilities
 # hadolint ignore=DL3008
@@ -88,11 +94,11 @@ RUN wget -O /tmp/install_ardurover.sh \
     https://raw.githubusercontent.com/kmjeong000/dave/${BRANCH}/extras/ardurover-ubuntu-install-local.sh && \
     chmod +x /tmp/install_ardurover.sh && \
     bash /tmp/install_ardurover.sh && \
-    cd /home/docker/ardupilot_ws/ardupilot && \
+    cd /home/${USERNAME}/ardupilot_ws/ardupilot && \
     ./waf clean && \
     ./waf configure --board sitl && \
     ./waf --targets bin/ardurover && \
-    test -f /home/docker/ardupilot_ws/ardupilot/build/sitl/bin/ardurover && \
+    test -f /home/${USERNAME}/ardupilot_ws/ardupilot/build/sitl/bin/ardurover && \
     rm -f /tmp/install_ardurover.sh
 
 # Install QGroundControl
@@ -148,37 +154,12 @@ RUN if [ -f /opt/ros/${ROS_DISTRO}/opt/gz_ogre_next_vendor/lib/libOgreNextMain.s
                /opt/ros/${ROS_DISTRO}/opt/gz_ogre_next_vendor/lib/libOgreNextMain.so.2.3.1; \
     fi
 
-# Create and activate Python virtual environment
-RUN python3 -m venv /root/.venv && \
-    . /root/.venv/bin/activate && \
-    pip install --upgrade pip setuptools wheel && \
-    pip install PyYAML pygame mavproxy pexpect packaging urllib3 empy==3.3.4 future
-
-RUN useradd -m -s /bin/bash docker 2>/dev/null || true && \
-    mkdir -p /tmp/runtime-docker && \
-    chown -R docker:docker /tmp/runtime-docker
-
-ENV PATH="/root/.venv/bin:/home/docker/ardupilot_ws/ardupilot/Tools/autotest:/home/docker/ardupilot_ws/ardupilot/build/sitl/bin:${PATH}"
+ENV PATH="/home/${USERNAME}/ardupilot_ws/ardupilot/Tools/autotest:/home/${USERNAME}/ardupilot_ws/ardupilot/build/sitl/bin:${PATH}"
 
 # GeographicLib compatibility link
 RUN mkdir -p /usr/local/share/GeographicLib/geoids && \
     ln -sf /usr/share/GeographicLib/geoids/egm96-5.pgm /usr/local/share/GeographicLib/geoids/egm96-5.pgm && \
     chmod 644 /usr/share/GeographicLib/geoids/egm96-5.pgm
 
-# Set up bashrc for root
-RUN echo "source /opt/ros/${ROS_DISTRO}/setup.bash" >> /root/.bashrc && \
-    echo "if [ -f /${DAVE_WS}/install/setup.bash ]; then source ${DAVE_WS}/install/setup.bash; fi" >> /root/.bashrc && \
-    echo "export GZ_SIM_SYSTEM_PLUGIN_PATH=/home/docker/ardupilot_ws/ardupilot_gazebo/build:\$GZ_SIM_SYSTEM_PLUGIN_PATH:${DAVE_WS}/src/dave/gazebo/dave_gz_world_plugins/ocean-waves/install/wave/lib" >> /root/.bashrc && \
-    echo "export LD_LIBRARY_PATH=${DAVE_WS}/src/dave/gazebo/dave_gz_world_plugins/ocean-waves/install/wave/lib:\$LD_LIBRARY_PATH" >> /root/.bashrc && \
-    echo "export GZ_SIM_RESOURCE_PATH=/home/docker/ardupilot_ws/ardupilot_gazebo/models:/home/docker/ardupilot_ws/ardupilot_gazebo/worlds:\$GZ_SIM_RESOURCE_PATH" >> /root/.bashrc && \
-    echo "export XDG_RUNTIME_DIR=/tmp/runtime-root" >> /root/.bashrc && \
-    echo "unset SESSION_MANAGER" >> /root/.bashrc && \
-    echo "alias venv='source /root/.venv/bin/activate'" >> /root/.bashrc && \
-    echo "alias qgc='sudo -E -H -u docker bash -lc '\''unset WAYLAND_DISPLAY; export QT_QPA_PLATFORM=xcb; export XDG_RUNTIME_DIR=/tmp/runtime-docker; qgroundcontrol'\'''" >> /root/.bashrc && \
-    echo "export PS1='\[\e[1;36m\]\u@DAVE_docker\[\e[0m\]\[\e[1;34m\](\$(hostname | cut -c1-12))\[\e[0m\]:\[\e[1;34m\]\w\[\e[0m\]\$ '" >> /root/.bashrc
-
-RUN mkdir -p /tmp/runtime-root && chmod 700 /tmp/runtime-root && \
-    cp /root/.bashrc /home/docker/.bashrc && \
-    chown docker:docker /home/docker/.bashrc
-
 WORKDIR /root
+CMD ["/bin/bash"]

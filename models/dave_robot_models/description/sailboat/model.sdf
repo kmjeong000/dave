@@ -433,6 +433,75 @@
       name="gz::sim::systems::NavSat">
     </plugin>
 
+    <plugin name="ArduPilotPlugin" filename="libArduPilotPlugin.so">
+      <!-- Port settings -->
+      <fdm_addr>127.0.0.1</fdm_addr>
+      <fdm_port_in>9002</fdm_port_in>
+      <connectionTimeoutMaxCount>5</connectionTimeoutMaxCount>
+      <lock_step>1</lock_step>
+
+      <!-- Transform from the Gazebo body frame (x-forward, y-left, z-up)
+           to the ArduPilot body frame (x-forward, y-right, z-down) -->
+      <modelXYZToAirplaneXForwardZDown>0 0 0 3.142 0 0</modelXYZToAirplaneXForwardZDown>
+
+      <!-- Transform from the Gazebo world frame (ENU)
+           to the ArduPilot world frame (North-East-Down) -->
+      <gazeboXYZToNED>0 0 0 3.142 0 1.571</gazeboXYZToNED>
+
+      <!-- Sensors -->
+      <imuName>imu_sensor</imuName>
+
+      <!-- Servo 1: ArduRover ground steering -> rudder joint target angle. -->
+      <control channel="0">
+        <jointName>rudder_joint</jointName>
+        <servo_min>1000</servo_min>
+        <servo_max>2000</servo_max>
+        <type>COMMAND</type>
+        <cmd_topic>/model/sailboat/joint/rudder_joint/cmd_pos</cmd_topic>
+        <offset>-0.5</offset>
+        <multiplier>1.222</multiplier>
+      </control>
+
+      <!-- Servo 2: ArduRover sail mast rotation -> sail joint target angle. -->
+      <control channel="1">
+        <jointName>sail_joint</jointName>
+        <servo_min>1000</servo_min>
+        <servo_max>2000</servo_max>
+        <type>COMMAND</type>
+        <cmd_topic>/model/sailboat/joint/sail_joint/cmd_pos</cmd_topic>
+        <offset>-0.5</offset>
+        <multiplier>3.1416</multiplier>
+      </control>
+    </plugin>
+
+    <plugin
+      filename="gz-sim-joint-position-controller-system"
+      name="gz::sim::systems::JointPositionController">
+      <joint_name>rudder_joint</joint_name>
+      <topic>/model/sailboat/joint/rudder_joint/cmd_pos</topic>
+      <p_gain>25</p_gain>
+      <i_gain>0</i_gain>
+      <d_gain>2</d_gain>
+      <i_max>1</i_max>
+      <i_min>-1</i_min>
+      <cmd_max>50</cmd_max>
+      <cmd_min>-50</cmd_min>
+    </plugin>
+
+    <plugin
+      filename="gz-sim-joint-position-controller-system"
+      name="gz::sim::systems::JointPositionController">
+      <joint_name>sail_joint</joint_name>
+      <topic>/model/sailboat/joint/sail_joint/cmd_pos</topic>
+      <p_gain>20</p_gain>
+      <i_gain>0</i_gain>
+      <d_gain>2</d_gain>
+      <i_max>1</i_max>
+      <i_min>-1</i_min>
+      <cmd_max>100</cmd_max>
+      <cmd_min>-100</cmd_min>
+    </plugin>
+
     <plugin
       filename="gz-sim-odometry-publisher-system"
       name="gz::sim::systems::OdometryPublisher">

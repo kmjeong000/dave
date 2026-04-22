@@ -1,0 +1,27 @@
+# Minimal Rover/Sailboat defaults for the Gazebo sailboat JSON backend.
+
+SAIL_ENABLE      1
+SAIL_ANGLE_MIN   0
+SAIL_ANGLE_MAX   90
+SAIL_ANGLE_IDEAL 35
+SAIL_NO_GO_ANGLE 45
+SAIL_HEEL_MAX    30
+
+# Use the home-heading wind vane so ACRO/AUTO sail logic has a wind direction
+# even before a dedicated Gazebo wind vane is modeled.
+WNDVN_TYPE       1
+WNDVN_SPEED_TYPE 0
+
+# Match the two ArduPilotPlugin control channels in model.sdf.
+SERVO1_FUNCTION 26
+SERVO1_MIN      1000
+SERVO1_MAX      2000
+SERVO1_TRIM     1500
+SERVO2_FUNCTION 137
+SERVO2_MIN      1000
+SERVO2_MAX      2000
+SERVO2_TRIM     1500
+SERVO3_FUNCTION 0
+
+# Keep SITL bring-up practical while sensor fidelity is still being filled in.
+ARMING_CHECK     0
