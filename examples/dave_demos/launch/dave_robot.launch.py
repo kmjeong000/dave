@@ -25,6 +25,10 @@ def launch_setup(context, *args, **kwargs):
     start_sitl = LaunchConfiguration("start_sitl")
     start_mavros = LaunchConfiguration("start_mavros")
     mavproxy_args = LaunchConfiguration("mavproxy_args")
+    start_mavproxy = LaunchConfiguration("start_mavproxy")
+    ardupilot_params = LaunchConfiguration("ardupilot_params")
+    ardupilot_home = LaunchConfiguration("ardupilot_home")
+    mavproxy_start_delay = LaunchConfiguration("mavproxy_start_delay")
     mavros_fcu_url = LaunchConfiguration("mavros_fcu_url")
     sitl_start_delay = LaunchConfiguration("sitl_start_delay")
     mavros_start_delay = LaunchConfiguration("mavros_start_delay")
@@ -94,6 +98,10 @@ def launch_setup(context, *args, **kwargs):
             "start_sitl": start_sitl,
             "start_mavros": start_mavros,
             "mavproxy_args": mavproxy_args,
+            "start_mavproxy": start_mavproxy,
+            "ardupilot_params": ardupilot_params,
+            "ardupilot_home": ardupilot_home,
+            "mavproxy_start_delay": mavproxy_start_delay,
             "mavros_fcu_url": mavros_fcu_url,
             "sitl_start_delay": sitl_start_delay,
             "mavros_start_delay": mavros_start_delay,
@@ -200,6 +208,28 @@ def generate_launch_description():
             description="MAVProxy output arguments passed to SITL launch helpers",
         ),
         DeclareLaunchArgument(
+            "start_mavproxy",
+            default_value="true",
+            description="Start MAVProxy to fan out telemetry to QGC and MAVROS",   
+        ),
+        DeclareLaunchArgument(
+            "ardupilot_params",
+            default_value=PathJoinSubstitution(
+                [FindPackageShare("dave_robot_models"), "config", "sailboat", "ardurover.parm"]
+            ),
+            description="Path to ArduRover parameter file",
+        ),
+        DeclareLaunchArgument(
+            "ardupilot_home",
+            default_value="44.65870,-124.06556,0.0,270.0",
+            description="ArduRover home position",
+        ),
+        DeclareLaunchArgument(
+            "mavproxy_start_delay",
+            default_value="7.0",
+            description="Seconds to wait before starting MAVProxy",
+        ),
+        DeclareLaunchArgument(
             "mavros_fcu_url",
             default_value="udp://:14560@127.0.0.1:14560",
             description="MAVROS FCU URL for robot configs that support it",
@@ -211,7 +241,7 @@ def generate_launch_description():
         ),
         DeclareLaunchArgument(
             "mavros_start_delay",
-            default_value="8.0",
+            default_value="9.0",
             description="Seconds to wait before starting MAVROS",
         ),
     ]

@@ -1,7 +1,9 @@
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, ExecuteProcess, OpaqueFunction, TimerAction
-from launch.substitutions import LaunchConfiguration
+from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
 from launch_ros.actions import Node
+from launch_ros.substitutions import FindPackageShare
+
 
 
 def _as_bool(value):
@@ -27,7 +29,7 @@ def launch_setup(context, *args, **kwargs):
             f"/model/{namespace}/magnetometer@sensor_msgs/msg/MagneticField@gz.msgs.Magnetometer",
             f"/world/{world_name}/model/{namespace}/link/camera_link/sensor/camera_sensor/image@sensor_msgs/msg/Image@gz.msgs.Image",
             f"/world/{world_name}/model/{namespace}/link/camera_link/sensor/camera_sensor/camera_info@sensor_msgs/msg/CameraInfo@gz.msgs.CameraInfo",
-            f"/model/{namespace}/gps/fix@sensor_msgs/msg/NavSatFix@gz.msgs.Nav.Sat",
+            f"/model/{namespace}/gps/fix@sensor_msgs/msg/NavSatFix@gz.msgs.NavSat",
         ]
     )
 
@@ -41,20 +43,40 @@ def launch_setup(context, *args, **kwargs):
     actions = [sailboat_bridge]
 
     if _as_bool(LaunchConfiguration("start_sitl").perform(context)):
-        mavproxy_args = LaunchConfiguration("mavproxy_args").perform(context)
+        ardupilot_params = LaunchConfiguration("ardupilot_params").perform(context)
         sitl_start_delay = float(LaunchConfiguration("sitl_start_delay").perform(context))
+        ardupilot_home = LaunchConfiguration("ardupilot_home").perform(context)
+        
         sitl_cmd = [
-            'sim_vehicle.py -N -v Rover -f rover --mavproxy-args="'
-            + mavproxy_args
-            + '"'
+            "ardurover -S -w --model json:127.0.0.1 "
+            + "--defaults " + ardupilot_params + " "
+            + "-I0 "
+            + "--home " + ardupilot_home
         ]
+        
         actions.append(
             TimerAction(
                 period=sitl_start_delay,
                 actions=[ExecuteProcess(cmd=sitl_cmd, shell=True, output="screen")],
             )
         )
-
+        
+    if _as_bool(LaunchConfiguration("start_mavproxy").perform(context)):
+        mavproxy_args = LaunchConfiguration("mavproxy_args").perform(context)
+        mavproxy_start_delay = float(LaunchConfiguration("mavproxy_start_delay").perform(context))
+        mavproxy_cmd = [
+            "mavproxy.py " 
+            + "--master=tcp:127.0.0.1:5760 "
+            + mavproxy_args
+        ]
+        
+        actions.append(
+            TimerAction(
+                period=mavproxy_start_delay,
+                actions=[ExecuteProcess(cmd=mavproxy_cmd, shell=True, output="screen")],
+            )
+        )
+        
     if _as_bool(LaunchConfiguration("start_mavros").perform(context)):
         mavros_fcu_url = LaunchConfiguration("mavros_fcu_url").perform(context)
         mavros_start_delay = float(LaunchConfiguration("mavros_start_delay").perform(context))
@@ -84,7 +106,24 @@ def generate_launch_description():
         DeclareLaunchArgument(
             "start_sitl",
             default_value="true",
-            description="Start ArduRover SITL with sim_vehicle.py",
+            description="Start ArduRover SITL with JSON Gazebo backend",
+        ),
+        DeclareLaunchArgument(
+            "ardupilot_params",
+            default_value=PathJoinSubstitution(
+                [FindPackageShare("dave_robot_models"), "config", "sailboat", "ardurover.parm"]
+            ),
+            description="Path to ArduRover parameter file",
+        ),
+        DeclareLaunchArgument(
+            "ardupilot_home",
+            default_value="44.65870,-124.06556,0.0,270.0",
+            description="ArduRover home position",
+        ),
+        DeclareLaunchArgument(
+            "start_mavproxy",
+            default_value="true",
+            description="Start MAVProxy to fan out telemetry to QGC and MAVROS",
         ),
         DeclareLaunchArgument(
             "start_mavros",
@@ -94,7 +133,7 @@ def generate_launch_description():
         DeclareLaunchArgument(
             "mavproxy_args",
             default_value="--out=udp:127.0.0.1:14550 --out=udp:127.0.0.1:14560",
-            description="MAVProxy output arguments passed to sim_vehicle.py",
+            description="MAVProxy output arguments",
         ),
         DeclareLaunchArgument(
             "mavros_fcu_url",
@@ -107,8 +146,13 @@ def generate_launch_description():
             description="Seconds to wait before starting SITL",
         ),
         DeclareLaunchArgument(
+            "mavproxy_start_delay", 
+            default_value="7.0",
+            description="Seconds to wait before starting MAVProxy",
+        ),
+        DeclareLaunchArgument(
             "mavros_start_delay",
-            default_value="8.0",
+            default_value="9.0",
             description="Seconds to wait before starting MAVROS",
         )
     ]
