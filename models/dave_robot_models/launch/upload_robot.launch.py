@@ -30,6 +30,10 @@ def generate_launch_description():
     use_ned_frame = LaunchConfiguration("use_ned_frame")
     start_sitl = LaunchConfiguration("start_sitl")
     start_mavros = LaunchConfiguration("start_mavros")
+    start_mavproxy = LaunchConfiguration("start_mavproxy")
+    ardupilot_params = LaunchConfiguration("ardupilot_params")
+    ardupilot_home = LaunchConfiguration("ardupilot_home")
+    mavproxy_start_delay = LaunchConfiguration("mavproxy_start_delay")
     mavproxy_args = LaunchConfiguration("mavproxy_args")
     mavros_fcu_url = LaunchConfiguration("mavros_fcu_url")
     sitl_start_delay = LaunchConfiguration("sitl_start_delay")
@@ -100,6 +104,28 @@ def generate_launch_description():
             "start_mavros",
             default_value="true",
             description="Start MAVROS for robot configs that support it",
+        ),
+        DeclareLaunchArgument(
+            "start_mavproxy",
+            default_value="true",
+            description="Start MAVProxy to fan out telemetry to QGC and MAVROS",
+        ),
+        DeclareLaunchArgument(
+            "ardupilot_params",
+            default_value=PathJoinSubstitution(
+                [FindPackageShare("dave_robot_models"), "config", "sailboat", "ardurover.parm"]
+            ),
+            description="Path to ArduRover parameter file",
+        ),
+        DeclareLaunchArgument(
+            "ardupilot_home",
+            default_value="44.65870,-124.06556,0.0,270.0",
+            description="ArduRover home position",
+        ),
+        DeclareLaunchArgument(
+            "mavproxy_start_delay",
+            default_value="7.0",
+            description="Seconds to wait before starting MAVProxy",
         ),
         DeclareLaunchArgument(
             "mavproxy_args",
@@ -198,6 +224,10 @@ def generate_launch_description():
             "world_name": world_name,
             "start_sitl": start_sitl,
             "start_mavros": start_mavros,
+            "start_mavproxy": start_mavproxy,
+            "ardupilot_params": ardupilot_params,
+            "ardupilot_home": ardupilot_home,
+            "mavproxy_start_delay": mavproxy_start_delay,
             "mavproxy_args": mavproxy_args,
             "mavros_fcu_url": mavros_fcu_url,
             "sitl_start_delay": sitl_start_delay,
