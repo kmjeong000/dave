@@ -48,14 +48,14 @@
       <self_collide>false</self_collide>
       <inertial>
         <pose>0 0 0 0 0 0</pose>
-			  <mass>15.0</mass>
+			  <mass>5.0</mass>
   			<inertia>
-          <ixx>13.09</ixx>
+          <ixx>4.36</ixx>
           <ixy>0</ixy>
           <ixz>0</ixz>
-          <iyy>15.39</iyy>
+          <iyy>5.13</iyy>
           <iyz>0</iyz>
-          <izz>2.714</izz>
+          <izz>0.905</izz>
   			</inertia>
       </inertial>
       <visual name="visual">
@@ -233,6 +233,36 @@
       <pose>0 0 0 0 0 0</pose>
       <parent>base_link</parent>
       <child>imu_link</child>
+    </joint>
+
+    <link name="anemometer_link">
+      <pose>0 0 0.5 0 0 0</pose>
+      <inertial>
+        <mass>0.01</mass>
+        <inertia>
+          <ixx>0.00001</ixx>
+          <ixy>0.0</ixy>
+          <ixz>0.0</ixz>
+          <iyy>0.00001</iyy>
+          <iyz>0.0</iyz>
+          <izz>0.00001</izz>
+        </inertia>
+      </inertial>
+      <sensor name="anemometer" type="custom" gz:type="anemometer">
+        <always_on>true</always_on>
+        <update_rate>30</update_rate>
+        <gz:anemometer>
+          <noise type="gaussian">
+            <mean>0.0</mean>
+            <stddev>0.5</stddev>
+          </noise>
+        </gz:anemometer>
+      </sensor>
+    </link>
+    
+    <joint name="anemometer_joint" type="fixed">
+      <parent>base_link</parent>
+      <child>anemometer_link</child>
     </joint>
 
     <link name="magnetometer_link">
@@ -439,7 +469,7 @@
 
       <!-- Transform from the Gazebo body frame (x-forward, y-left, z-up)
            to the ArduPilot body frame (x-forward, y-right, z-down) -->
-      <modelXYZToAirplaneXForwardZDown>0 0 0 0 0 0</modelXYZToAirplaneXForwardZDown>
+      <modelXYZToAirplaneXForwardZDown>0 0 0 0 0 1.5708</modelXYZToAirplaneXForwardZDown>
 
       <!-- Transform from the Gazebo world frame (ENU)
            to the ArduPilot world frame (North-East-Down) -->
@@ -447,6 +477,7 @@
 
       <!-- Sensors -->
       <imuName>imu_sensor</imuName>
+      <anemometer>anemometer_link::anemometer</anemometer>
 
       <!-- Servo 1: ArduRover ground steering -> rudder joint target angle. -->
       <control channel="0">

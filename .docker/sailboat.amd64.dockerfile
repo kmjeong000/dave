@@ -41,6 +41,7 @@ USER ${USERNAME}
 WORKDIR /home/${USERNAME}
 
 RUN echo "source /opt/ros/${ROS_DISTRO}/setup.bash" >> ~/.bashrc && \
+    echo "source /opt/asv_sim_ws/install/setup.bash" >> ~/.bashrc && \
     echo "if [ -f ${DAVE_WS}/install/setup.bash ]; then source ${DAVE_WS}/install/setup.bash; fi" >> ~/.bashrc && \
     echo "if [ -f ${SAILBOAT_VENV}/bin/activate ]; then source ${SAILBOAT_VENV}/bin/activate; fi" >> ~/.bashrc && \
     echo "if [ -f ${SAILBOAT_WS}/install/setup.bash ]; then source ${SAILBOAT_WS}/install/setup.bash; fi" >> ~/.bashrc && \
@@ -55,7 +56,8 @@ RUN echo "source /opt/ros/${ROS_DISTRO}/setup.bash" >> ~/.bashrc && \
 
 COPY .docker/sailboat_entrypoint.sh /usr/local/bin/sailboat_entrypoint.sh
 USER root
-RUN chmod 0755 /usr/local/bin/sailboat_entrypoint.sh
+RUN chmod 0755 /usr/local/bin/sailboat_entrypoint.sh && \
+    chmod 0755 /home/docker/sailboat_ws/src/dave/.docker/sailboat_entrypoint.sh
 USER ${USERNAME}
 WORKDIR /home/${USERNAME}
 ENTRYPOINT [ "/usr/local/bin/sailboat_entrypoint.sh" ]
