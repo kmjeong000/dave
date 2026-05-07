@@ -20,9 +20,9 @@ set -u
 
 export PATH="/home/docker/ardupilot_ws/ardupilot/Tools/autotest:${PATH}"
 export PATH="/home/docker/ardupilot_ws/ardupilot/build/sitl/bin:${PATH}"
-export GZ_SIM_SYSTEM_PLUGIN_PATH="/home/docker/ardupilot_ws/ardupilot_gazebo/build:${GZ_SIM_SYSTEM_PLUGIN_PATH:-}"
+export GZ_SIM_SYSTEM_PLUGIN_PATH="/opt/asv_sim_ws/install/lib:/home/docker/ardupilot_ws/ardupilot_gazebo/build:${GZ_SIM_SYSTEM_PLUGIN_PATH:-}"
 export GZ_SIM_SYSTEM_PLUGIN_PATH="${GZ_SIM_SYSTEM_PLUGIN_PATH}:/opt/dave_ws/src/dave/gazebo/dave_gz_world_plugins/ocean-waves/install/wave/lib"
-export GZ_SIM_RESOURCE_PATH="/home/docker/ardupilot_ws/ardupilot_gazebo/models:/home/docker/ardupilot_ws/ardupilot_gazebo/worlds:${GZ_SIM_RESOURCE_PATH:-}"
+export GZ_SIM_RESOURCE_PATH="/opt/asv_sim_ws/src/asv_sim/asv_sim_gazebo/models:/opt/asv_sim_ws/src/asv_sim/asv_sim_gazebo/worlds:/home/docker/ardupilot_ws/ardupilot_gazebo/models:/home/docker/ardupilot_ws/ardupilot_gazebo/worlds:${GZ_SIM_RESOURCE_PATH:-}"
 export LD_LIBRARY_PATH="/opt/dave_ws/src/dave/gazebo/dave_gz_world_plugins/ocean-waves/install/wave/lib:${LD_LIBRARY_PATH:-}"
 export FASTDDS_BUILTIN_TRANSPORTS="${FASTDDS_BUILTIN_TRANSPORTS:-UDPv4}"
 export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/tmp/runtime-docker}"

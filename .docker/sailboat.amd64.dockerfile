@@ -44,9 +44,9 @@ RUN echo "source /opt/ros/${ROS_DISTRO}/setup.bash" >> ~/.bashrc && \
     echo "if [ -f ${DAVE_WS}/install/setup.bash ]; then source ${DAVE_WS}/install/setup.bash; fi" >> ~/.bashrc && \
     echo "if [ -f ${SAILBOAT_VENV}/bin/activate ]; then source ${SAILBOAT_VENV}/bin/activate; fi" >> ~/.bashrc && \
     echo "if [ -f ${SAILBOAT_WS}/install/setup.bash ]; then source ${SAILBOAT_WS}/install/setup.bash; fi" >> ~/.bashrc && \
-    echo "export GZ_SIM_SYSTEM_PLUGIN_PATH=/home/${USERNAME}/ardupilot_ws/ardupilot_gazebo/build:\$GZ_SIM_SYSTEM_PLUGIN_PATH:${DAVE_WS}/src/dave/gazebo/dave_gz_world_plugins/ocean-waves/install/wave/lib" >> ~/.bashrc && \
+    echo "export GZ_SIM_SYSTEM_PLUGIN_PATH=/opt/asv_sim_ws/install/lib:/home/${USERNAME}/ardupilot_ws/ardupilot_gazebo/build:\$GZ_SIM_SYSTEM_PLUGIN_PATH:${DAVE_WS}/src/dave/gazebo/dave_gz_world_plugins/ocean-waves/install/wave/lib" >> ~/.bashrc && \
     echo "export LD_LIBRARY_PATH=${DAVE_WS}/src/dave/gazebo/dave_gz_world_plugins/ocean-waves/install/wave/lib:\$LD_LIBRARY_PATH" >> ~/.bashrc && \
-    echo "export GZ_SIM_RESOURCE_PATH=/home/${USERNAME}/ardupilot_ws/ardupilot_gazebo/models:/home/${USERNAME}/ardupilot_ws/ardupilot_gazebo/worlds:\$GZ_SIM_RESOURCE_PATH" >> ~/.bashrc && \
+    echo "export GZ_SIM_RESOURCE_PATH=/opt/asv_sim_ws/src/asv_sim/asv_sim_gazebo/models:/opt/asv_sim_ws/src/asv_sim/asv_sim_gazebo/worlds:/home/${USERNAME}/ardupilot_ws/ardupilot_gazebo/models:/home/${USERNAME}/ardupilot_ws/ardupilot_gazebo/worlds:\$GZ_SIM_RESOURCE_PATH" >> ~/.bashrc && \
     echo "export XDG_RUNTIME_DIR=/tmp/runtime-${USERNAME}" >> ~/.bashrc && \
     echo "unset SESSION_MANAGER" >> ~/.bashrc && \
     echo "alias venv='source /home/${USERNAME}/venv/bin/activate'" >> ~/.bashrc && \

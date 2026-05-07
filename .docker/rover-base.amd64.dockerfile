@@ -148,6 +148,19 @@ RUN . "/opt/ros/${ROS_DISTRO}/setup.sh" && \
 WORKDIR $DAVE_WS/src/dave/gazebo/dave_gz_world_plugins/ocean-waves/src/gui/plugins/waves_control
 RUN mkdir -p build && cd build && cmake .. && make
 
+# Build asv_sim for anemometer sensor
+ENV ASV_SIM_WS=/opt/asv_sim_ws
+RUN mkdir -p ${ASV_SIM_WS}/src && \
+    git clone https://github.com/srmainwaring/asv_sim.git ${ASV_SIM_WS}/src/asv_sim && \
+    cd ${ASV_SIM_WS} && \
+    . "/opt/ros/${ROS_DISTRO}/setup.sh" && \
+    export GZ_VERSION=harmonic && \
+    echo "GZ_VERSION=${GZ_VERSION}" && \
+    colcon build --symlink-install --merge-install --cmake-args \
+    -DCMAKE_BUILD_TYPE=RelWithDebInfo \
+    -DBUILD_TESTING=OFF \
+    -DCMAKE_CXX_STANDARD=17
+
 # Patch for wave sim
 RUN if [ -f /opt/ros/${ROS_DISTRO}/opt/gz_ogre_next_vendor/lib/libOgreNextMain.so.2.3.3 ]; then \
         ln -sf /opt/ros/${ROS_DISTRO}/opt/gz_ogre_next_vendor/lib/libOgreNextMain.so.2.3.3 \
