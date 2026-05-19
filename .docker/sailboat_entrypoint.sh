@@ -15,6 +15,7 @@ source_if_exists "/home/docker/venv/bin/activate"
 source_if_exists "/opt/ros/${ROS_DISTRO}/setup.bash"
 source_if_exists "/opt/dave_ws/install/setup.bash"
 source_if_exists "${SAILBOAT_WS}/install/setup.bash"
+source_if_exists "/opt/asv_sim_ws/install/setup.bash"
 
 set -u
 
