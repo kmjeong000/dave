@@ -73,7 +73,7 @@ def launch_setup(context, *args, **kwargs):
         actions.append(
             TimerAction(
                 period=mavproxy_start_delay,
-                actions=[ExecuteProcess(cmd=mavproxy_cmd, shell=True, output="screen")],
+                actions=[ExecuteProcess(cmd=mavproxy_cmd, shell=True, output="log")],
             )
         )
         

@@ -1,0 +1,188 @@
+diff --git a/Rover/sailboat.cpp b/Rover/sailboat.cpp
+index 2c5caee8d0..f3428c4008 100644
+--- a/Rover/sailboat.cpp
++++ b/Rover/sailboat.cpp
+@@ -203,6 +203,9 @@ void Sailboat::set_auto_mainsail(float desired_speed)
+     //
+     // mainsail_out represents a range from 0 to 100
+     float mainsail_out = 100.0f;
++    float mainsail_angle_dbg = -999.0f;
++    float mainsail_base_dbg = -999.0f;
++
+     // main sails cannot be used to reverse
+     if (is_positive(desired_speed)) {
+         // Sails are sheeted the same on each side use abs wind direction
+@@ -213,9 +216,35 @@ void Sailboat::set_auto_mainsail(float desired_speed)
+         // linear interpolate mainsail value (0 to 100) from wind angle mainsail_angle
+         const float mainsail_base = linear_interpolate(0.0f, 100.0f, mainsail_angle,sail_angle_min,sail_angle_max);
+ 
++	mainsail_angle_dbg = mainsail_angle;
++	mainsail_base_dbg = mainsail_base;
++
+         mainsail_out = constrain_float((mainsail_base + pid_offset), 0.0f ,100.0f);
+     }
++
++    static uint32_t last_sail_auto_debug_ms;
++    const uint32_t now_sail_auto_debug_ms = AP_HAL::millis();
++
++    if (now_sail_auto_debug_ms - last_sail_auto_debug_ms > 1000) {
++	last_sail_auto_debug_ms = now_sail_auto_debug_ms;
++
++	GCS_SEND_TEXT(MAV_SEVERITY_INFO,
++	    "SailA ds=%.1f app=%.0f abs=%.0f",
++	    desired_speed,
++	    wind_dir_apparent,
++	    wind_dir_apparent_abs);
++
++	GCS_SEND_TEXT(MAV_SEVERITY_INFO,
++	    "SailB pid=%.0f ang=%.0f base=%.0f out=%.0f",
++	    pid_offset,
++	    mainsail_angle_dbg,
++	    mainsail_base_dbg,
++	    mainsail_out);
++
++    }
++
+     rover.g2.motors.set_mainsail(mainsail_out);
++
+     //
+     // wingsail control
+     // wing sails auto trim, we only need to reduce power if we are tipping over, must also be trimmed for correct tack
+@@ -275,6 +304,19 @@ void Sailboat::relax_sails()
+ // calculate throttle and mainsail angle required to attain desired speed (in m/s)
+ void Sailboat::get_throttle_and_set_mainsail(float desired_speed, float &throttle_out)
+ {
++    static uint32_t last_sail_thr_debug_ms;
++    const uint32_t now_sail_thr_debug_ms = AP_HAL::millis();
++
++    if (now_sail_thr_debug_ms - last_sail_thr_debug_ms > 1000) {
++	last_sail_thr_debug_ms = now_sail_thr_debug_ms;
++
++	GCS_SEND_TEXT(MAV_SEVERITY_INFO,
++	    "SailThr en=%d tack=%d ms=%d ds=%.1f",
++	    (int)sail_enabled(),
++	    (int)tack_enabled(),
++	    (int)motor_state,
++	    desired_speed);
++    }
+     throttle_out = 0.0f;
+     if (!sail_enabled()) {
+         relax_sails();
+@@ -388,7 +430,25 @@ bool Sailboat::use_indirect_route(float desired_heading_cd) const
+ 
+     // check if desired heading is in the no go zone, if it is we can't go direct
+     // pad no go zone, this allows use of heading controller rather than L1 when close to the wind
+-    return fabsf(wrap_PI(rover.g2.windvane.get_true_wind_direction_rad() - desired_heading_rad)) <= radians(sail_no_go + SAILBOAT_NOGO_PAD);
++    const float true_wind_rad = rover.g2.windvane.get_true_wind_direction_rad();
++    const float diff_deg = degrees(fabsf(wrap_PI(true_wind_rad - desired_heading_rad)));
++    const bool indirect = diff_deg <= (float)(sail_no_go + SAILBOAT_NOGO_PAD);
++
++    static uint32_t last_sail_route_debug_ms;
++    const uint32_t now_sail_route_debug_ms = AP_HAL::millis();
++
++    if (now_sail_route_debug_ms - last_sail_route_debug_ms > 1000) {
++	last_sail_route_debug_ms = now_sail_route_debug_ms;
++
++	GCS_SEND_TEXT(MAV_SEVERITY_INFO,
++	    "SailRoute des=%.0f wind=%.0f diff=%.0f lim=%.0f ind=%d",
++	    desired_heading_cd * 0.01f,
++	    degrees(true_wind_rad),
++	    diff_deg,
++	    (float)(sail_no_go + SAILBOAT_NOGO_PAD),
++	    (int)indirect);
++    }
++    return indirect;
+ }
+ 
+ // if we can't sail on the desired heading then we should pick the best heading that we can sail on
+@@ -410,6 +470,35 @@ float Sailboat::calc_heading(float desired_heading_cd)
+     // this allows use of heading controller rather than L1 when desired
+     // this is used in the 'SAILBOAT_NOGO_PAD' region
+     const float true_wind_rad = rover.g2.windvane.get_true_wind_direction_rad();
++    const float diff_deg = degrees(fabsf(wrap_PI(true_wind_rad - desired_heading_rad)));
++
++    static uint32_t last_sail_hdg_debug_ms;
++    const uint32_t now_sail_hdg_debug_ms = AP_HAL::millis();
++
++    if (now_sail_hdg_debug_ms - last_sail_hdg_debug_ms > 1000) {
++	last_sail_hdg_debug_ms = now_sail_hdg_debug_ms;
++
++	GCS_SEND_TEXT(MAV_SEVERITY_INFO,
++	    "SailH des=%.0f yaw=%.0f wind=%.0f",
++	    desired_heading_cd * 0.01f,
++	    degrees(rover.ahrs.get_yaw_rad()),
++	    degrees(true_wind_rad));
++
++	GCS_SEND_TEXT(MAV_SEVERITY_INFO,
++	    "SailH diff=%.0f nogo=%.0f tack=%d cur=%d",
++	    diff_deg,
++	    (float)sail_no_go,
++	    (int)tack_enabled(),
++	    (int)current_tack);
++	GCS_SEND_TEXT(MAV_SEVERITY_INFO,
++	    "SailT pre diff=%.0f nogo=%.0f padlim=%.0f ct=%d cur=%d",
++	    diff_deg,
++	    (float)sail_no_go,
++	    (float)(sail_no_go + SAILBOAT_NOGO_PAD),
++	    (int)currently_tacking,
++	    (int)current_tack);
++    }
++
+     if (fabsf(wrap_PI(true_wind_rad - desired_heading_rad)) > radians(sail_no_go) && !currently_tacking) {
+ 
+         // calculate the tack the new heading would be on
+@@ -432,10 +521,18 @@ float Sailboat::calc_heading(float desired_heading_cd)
+         }
+ 
+         if (!should_tack) {
++	    GCS_SEND_TEXT(MAV_SEVERITY_INFO,
++		"SailT pad/early diff=%.0f nogo=%.0f sh=%d cur=%d",
++		diff_deg,
++		(float)sail_no_go,
++		(int)should_tack,
++		(int)current_tack);
++
+             return desired_heading_cd;
+         }
+     }
+ 
++
+     // check for user requested tack
+     uint32_t now = AP_HAL::millis();
+     if (tack_request_ms != 0 && !should_tack && !currently_tacking) {
+@@ -459,6 +556,21 @@ float Sailboat::calc_heading(float desired_heading_cd)
+         }
+     }
+ 
++    static uint32_t last_sail_tack_debug_ms;
++    const uint32_t now_sail_tack_debug_ms = AP_HAL::millis();
++
++    if (now_sail_tack_debug_ms - last_sail_tack_debug_ms > 1000) {
++	last_sail_tack_debug_ms = now_sail_tack_debug_ms;
++
++	GCS_SEND_TEXT(MAV_SEVERITY_INFO,
++	    "SailT sh=%d ct=%d cur=%d xt=%.1f xlim=%.1f",
++	    (int)should_tack,
++	    (int)currently_tacking,
++	    (int)current_tack,
++	    cross_track_error,
++	    (float)xtrack_max);
++    }
++
+     // calculate left and right no go headings looking upwind, Port tack heading is left no-go, STBD tack is right of no-go
+     const float left_no_go_heading_rad = wrap_2PI(true_wind_rad + radians(sail_no_go));
+     const float right_no_go_heading_rad = wrap_2PI(true_wind_rad - radians(sail_no_go));
+@@ -475,6 +587,13 @@ float Sailboat::calc_heading(float desired_heading_cd)
+                 tack_heading_rad = left_no_go_heading_rad;
+                 break;
+         }
++
++	GCS_SEND_TEXT(MAV_SEVERITY_INFO,
++	    "SailT start yaw=%.0f thdg=%.0f wind=%.0f",
++	    degrees(rover.ahrs.get_yaw_rad()),
++	    degrees(tack_heading_rad),
++	    degrees(true_wind_rad));
++
+         currently_tacking = true;
+         auto_tack_start_ms = now;
+     }
