@@ -1,27 +1,90 @@
-# Minimal Rover/Sailboat defaults for the Gazebo sailboat JSON backend.
+# ============================================================
+# Basic rover/sailboat bring-up
+# ============================================================
+
+# Start safely; switch to AUTO/GUIDED from QGC or MAVProxy after mission/target is ready.
+INITIAL_MODE     0
+MODE_CH          0
+
+
+# AUTO should not wait for external trigger.
+AUTO_TRIGGER_PIN -1
+AUTO_KICKSTART   0
+
+# SITL bring-up convenience.
+ARMING_CHECK     0
+FS_THR_ENABLE    0
+FS_GCS_ENABLE    0
+
+
+# ============================================================
+# Vehicle / navigation defaults
+# ============================================================
+
+# Treat this as a boat-class rover.
+FRAME_CLASS      2
+FRAME_TYPE       0
+
+
+# Loiter behaviour used by sailboat tacking logic.
+LOIT_TYPE        1
+LOIT_RADIUS      5
+
+
+# ============================================================
+# Wind vane source
+# ============================================================
+
+# Required because sail trim and tacking depend on true/apparent wind.
+# Your current setup used this as a practical wind source before a real Gazebo wind vane exists.
+WNDVN_TYPE       11
+WNDVN_SPEED_TYPE 11
+WNDVN_SPEED_OFS  0
+
+# ============================================================
+# Sailboat core parameters
+# ============================================================
 
 SAIL_ENABLE      1
+
+# Mainsail angle range.
 SAIL_ANGLE_MIN   0
 SAIL_ANGLE_MAX   90
 SAIL_ANGLE_IDEAL 35
+SAIL_HEEL_MAX    60
 SAIL_NO_GO_ANGLE 45
-SAIL_HEEL_MAX    30
+SAIL_WNDSPD_MIN  0
+SAIL_XTRACK_MAX  2
 
-# Use the home-heading wind vane so ACRO/AUTO sail logic has a wind direction
-# even before a dedicated Gazebo wind vane is modeled.
-WNDVN_TYPE       1
-WNDVN_SPEED_TYPE 0
+# Sailing loiter radius.
+SAIL_LOIT_RADIUS 5
+
+# ============================================================
+# Sail heel PID tuning
+# ============================================================
+
+ATC_SAIL_P       0.1
+ATC_SAIL_I       0.0
+ATC_SAIL_D       0.0
+ATC_SAIL_IMAX    10
+
+
+# ============================================================
+# Servo output mapping
+# ============================================================
 
 # Match the two ArduPilotPlugin control channels in model.sdf.
+# SERVO1 -> rudder_joint
+# SERVO2 -> sail_joint / mainsail
 SERVO1_FUNCTION 26
 SERVO1_MIN      1000
 SERVO1_MAX      2000
 SERVO1_TRIM     1500
-SERVO2_FUNCTION 137
+
+SERVO2_FUNCTION 89
 SERVO2_MIN      1000
 SERVO2_MAX      2000
 SERVO2_TRIM     1500
-SERVO3_FUNCTION 0
 
-# Keep SITL bring-up practical while sensor fidelity is still being filled in.
-ARMING_CHECK     0
+# No propulsion motor for pure sailboat simulation.
+SERVO3_FUNCTION 0
