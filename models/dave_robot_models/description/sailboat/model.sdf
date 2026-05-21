@@ -2,7 +2,7 @@
 <sdf version="1.7">
   <model name="sailboat">
 
-    <enable_wind>true</enable_wind>
+    <!-- <enable_wind>true</enable_wind> -->
 
 	  <link name="base_link">
 		  <inertial>
@@ -92,8 +92,8 @@
       <axis>
         <xyz>0 0 1</xyz>
         <limit>
-          <lower>-1.5708</lower>  <!-- -90° -->
-          <upper>1.5708</upper>   <!-- +90° -->
+          <lower>-0.7854</lower>  <!-- -45° -->
+          <upper>0.7854</upper>   <!-- +45° -->
           <effort>100</effort>
           <velocity>2.0</velocity>
         </limit>
@@ -404,6 +404,7 @@
         <vRDrag>1.9</vRDrag>
       </hydrodynamics>
     </plugin>
+    <!--
     <plugin 
       filename="wave-hydrodynamics-system"
       name="gz::sim::systems::Hydrodynamics">
@@ -446,7 +447,7 @@
         <vRDrag>1.1</vRDrag>
       </hydrodynamics>
     </plugin>
-
+-->
     <plugin
       filename="gz-sim-imu-system"
       name="gz::sim::systems::Imu">
@@ -461,44 +462,58 @@
     </plugin>
     
     <plugin
-      filename="gz-sim-lift-drag-system"
-      name="gz::sim::systems::LiftDrag">
-      <link_name>sail_link</link_name>
-      <air_density>1.225</air_density>
-      <area>1.0</area>
+      filename="libSailLiftDragSystem.so"
+      name="ioes::sim::SailLiftDragSystem">
+      <sail_link>sail_link</sail_link>
+      <wind_velocity>0 5 0</wind_velocity>
+      <fluid_density>1.2</fluid_density>
+      <area>5</area>
       <a0>0.0</a0>
-      <cla>4.0</cla>
-      <cda>0.5</cda>
-      <cma>0.0</cma>
-      <alpha_stall>0.6</alpha_stall>
-      <cla_stall>-1.0</cla_stall>
-      <cda_stall>1.0</cda_stall>
-      <cma_stall>0.0</cma_stall>
-      <cp>0 0 0.4</cp>
-      <forward>1 0 0</forward>
-      <upward>0 1 0</upward>
+      <cla>6.2832</cla>
+      <alpha_stall>0.1592</alpha_stall>
+      <cla_stall>-0.7083</cla_stall>
+      <cda>0.63662</cda>
+      <radial_symmetry>true</radial_symmetry>
+      <forward>0 1 0</forward>
+      <upward>0 0 1</upward>
+      <cp>0 0 0.5</cp>
+      <debug>true</debug>
+      <debug_period>1.0</debug_period>
     </plugin>
 
+    <plugin
+      filename="libFoilLiftDragSystem.so"
+      name="ioes::sim::FoilLiftDragSystem">
+      <daggerboard_link>daggerboard_link</daggerboard_link>
+      <water_velocity>0 0 0</water_velocity>
+      <fluid_density>1000.0</fluid_density>
+      <area>0.40</area>
+      <a0>0.0</a0>
+      <cla>6.2832</cla>
+      <alpha_stall>0.3</alpha_stall>
+      <cla_stall>-0.7083</cla_stall>
+      <cda>0.2</cda>
+      <radial_symmetry>true</radial_symmetry>
+      <forward>0 1 0</forward>
+      <upward>0 0 1</upward>
+      <cp>0 0 0</cp>
+      <debug>true</debug>
+      <debug_period>1.0</debug_period>
+    </plugin>
+<!--
     <plugin name="ArduPilotPlugin" filename="libArduPilotPlugin.so">
-      <!-- Port settings -->
       <fdm_addr>127.0.0.1</fdm_addr>
       <fdm_port_in>9002</fdm_port_in>
       <connectionTimeoutMaxCount>5</connectionTimeoutMaxCount>
       <lock_step>1</lock_step>
 
-      <!-- Transform from the Gazebo body frame (x-forward, y-left, z-up)
-           to the ArduPilot body frame (x-forward, y-right, z-down) -->
       <modelXYZToAirplaneXForwardZDown>0 0 0 0 0 1.5708</modelXYZToAirplaneXForwardZDown>
 
-      <!-- Transform from the Gazebo world frame (ENU)
-           to the ArduPilot world frame (North-East-Down) -->
       <gazeboXYZToNED>0 0 0 3.142 0 0</gazeboXYZToNED>
 
-      <!-- Sensors -->
       <imuName>imu_sensor</imuName>
       <anemometer>anemometer_link::anemometer</anemometer>
 
-      <!-- Servo 1: ArduRover ground steering -> rudder joint target angle. -->
       <control channel="0">
         <jointName>rudder_joint</jointName>
         <servo_min>1000</servo_min>
@@ -509,7 +524,6 @@
         <multiplier>1.5708</multiplier>
       </control>
 
-      <!-- Servo 2: ArduRover sail mast rotation -> sail joint target angle. -->
       <control channel="1">
         <jointName>sail_joint</jointName>
         <servo_min>1000</servo_min>
@@ -520,7 +534,7 @@
         <multiplier>3.1416</multiplier>
       </control>
     </plugin>
-
+-->
     <plugin
       filename="gz-sim-joint-position-controller-system"
       name="gz::sim::systems::JointPositionController">
