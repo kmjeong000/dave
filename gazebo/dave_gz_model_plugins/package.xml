@@ -12,6 +12,13 @@
   <depend>rclcpp</depend>
   <depend>protobuf</depend>
   <depend>std_msgs</depend>
+  <depend>gz-common5</depend>
+  <depend>gz-sim8</depend>
+  <depend>gz-math7</depend>
+  <depend>geometry_msgs</depend>
+  <depend>gz-msgs10</depend>
+  <depend>gz-plugin2</depend>
+  <depend>boost</depend>
   <test_depend>ament_lint_auto</test_depend>
   <test_depend>ament_lint_common</test_depend>
   <export>
