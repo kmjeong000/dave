@@ -9,10 +9,13 @@
 #include <gz/sim/System.hh>
 #include <gz/sim/Util.hh>
 #include <sdf/Element.hh>
+#include <gz/transport/Node.hh>
+#include <gz/msgs/wind.pb.h>
 
 #include <chrono>
 #include <memory>
 #include <string>
+#include <mutex>
 
 namespace ioes::sim
 {
@@ -89,12 +92,48 @@ public:
     this->modelData.SetParams(p);
     this->windVelocityWorld =
       GetParam<gz::math::Vector3d>(_sdf, "wind_velocity", {0, 0, 0});
+    this->windTopic = GetParam<std::string>(_sdf, "wind_topic", "");
+
+    if (!this->windTopic.empty())
+    {
+      const bool subscribed = 
+        this->node.Subscribe(this->windTopic,
+                            &SailLiftDragSystem::OnWindMsg, 
+                            this);
+      if (subscribed)
+      {
+        gzerr << "[SailLiftDragSystem] Subscribed to wind topic ["
+              << this->windTopic << "]" << std::endl;
+      }
+      else
+      {
+        gzerr << "[SailLiftDragSystem] Failed to subscribe to wind topic ["
+              << this->windTopic << "]" << std::endl;
+      }
+    }
+    else
+    {
+      gzerr << "[SailLiftDragSystem] No <wind_topic>. Using fixed wind_velocity="
+            << this->windVelocityWorld << std::endl;
+    }
     this->debug = GetParam<bool>(_sdf, "debug", false);
     this->debugPeriod = GetParam<double>(_sdf, "debug_period", 1.0);
 
     gzmsg << "[SailLiftDragSystem] Loaded for link [" << this->linkName
           << "], wind_velocity=" << this->windVelocityWorld
           << ", area=" << p.area << ", rho=" << p.fluidDensity << "\n";
+  }
+
+  void OnWindMsg(const gz::msgs::Wind &_msg)
+  {
+    std::lock_guard<std::mutex> lock(this->windMutex);
+
+    if (_msg.has_linear_velocity())
+    {
+      const auto &v = _msg.linear_velocity();
+      this->windVelocityWorld.Set(v.x(), v.y(), v.z());
+      this->windTopicReceived = true;
+    }
   }
 
   void PreUpdate(const gz::sim::UpdateInfo &_info,
@@ -110,7 +149,12 @@ public:
 
     // Equivalent to asv_sim SailPlugin:
     // free stream = wind velocity at sail - sail CP velocity.
-    const gz::math::Vector3d freeStream = this->windVelocityWorld - *velOpt;
+    gz::math::Vector3d windWorld;
+    {
+      std::lock_guard<std::mutex> lock(this->windMutex);
+      windWorld = this->windVelocityWorld;
+    }
+    const gz::math::Vector3d freeStream = windWorld - *velOpt;
     auto result = this->modelData.Compute(freeStream, *poseOpt);
 
     if (result.force.Length() <= 0.0)
@@ -127,6 +171,7 @@ public:
       {
         this->lastDebugTime = simSec;
         gzmsg << "[SailLiftDragSystem] link=" << this->linkName
+              << " windWorld=" << windWorld
               << " Vapp=" << freeStream
               << " speed=" << result.speed
               << " alpha_deg=" << (result.alpha * 180.0 / 3.14159265358979323846)
@@ -142,9 +187,13 @@ public:
 private:
   gz::sim::Model model{gz::sim::kNullEntity};
   gz::sim::Link link{gz::sim::kNullEntity};
+  gz::transport::Node node;
+  std::mutex windMutex;
+  std::string windTopic;
   std::string linkName;
   LiftDragModel modelData;
   gz::math::Vector3d windVelocityWorld{0, 0, 0};
+  bool windTopicReceived{false};
   bool debug{false};
   double debugPeriod{1.0};
   double lastDebugTime{-1e9};

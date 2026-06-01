@@ -15,6 +15,7 @@ find_package(geometry_msgs REQUIRED)
 find_package(dave_interfaces REQUIRED)
 find_package(Protobuf REQUIRED)
 find_package(gz-msgs10 REQUIRED)
+find_package(gz-transport13 REQUIRED)
 find_package(dave_gz_world_plugins REQUIRED)
 
 # Set version variables
@@ -23,6 +24,7 @@ set(GZ_COMMON_VER ${gz-common5_VERSION_MAJOR})
 set(GZ_SIM_VER ${gz-sim8_VERSION_MAJOR})
 set(GZ_MATH_VER ${gz-math7_VERSION_MAJOR})
 set(GZ_MSGS_VER ${gz-msgs10_VERSION_MAJOR})
+set(GZ_TRANSPORT_VER ${gz-transport13_VERSION_MAJOR})
 
 message(STATUS "Compiling against Gazebo Harmonic")
 
@@ -56,6 +58,8 @@ target_link_libraries(SailLiftDragSystem
   gz-sim${GZ_SIM_VER}::gz-sim${GZ_SIM_VER}
   gz-plugin${GZ_PLUGIN_VER}::register
   gz-math${GZ_MATH_VER}::gz-math${GZ_MATH_VER}
+  gz-msgs${GZ_MSGS_VER}::gz-msgs${GZ_MSGS_VER}
+  gz-transport${GZ_TRANSPORT_VER}::gz-transport${GZ_TRANSPORT_VER}
 )
 
 add_library(FoilLiftDragSystem SHARED

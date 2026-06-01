@@ -465,7 +465,7 @@
       filename="libSailLiftDragSystem.so"
       name="ioes::sim::SailLiftDragSystem">
       <sail_link>sail_link</sail_link>
-      <wind_velocity>0 5 0</wind_velocity>
+      <wind_topic>/world/waves/wind</wind_topic>
       <fluid_density>1.2</fluid_density>
       <area>5</area>
       <a0>0.0</a0>
@@ -500,7 +500,7 @@
       <debug>true</debug>
       <debug_period>1.0</debug_period>
     </plugin>
-<!--
+
     <plugin name="ArduPilotPlugin" filename="libArduPilotPlugin.so">
       <fdm_addr>127.0.0.1</fdm_addr>
       <fdm_port_in>9002</fdm_port_in>
@@ -534,7 +534,7 @@
         <multiplier>3.1416</multiplier>
       </control>
     </plugin>
--->
+    
     <plugin
       filename="gz-sim-joint-position-controller-system"
       name="gz::sim::systems::JointPositionController">

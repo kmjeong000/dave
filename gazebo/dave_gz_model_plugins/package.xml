@@ -17,6 +17,7 @@
   <depend>gz-math7</depend>
   <depend>geometry_msgs</depend>
   <depend>gz-msgs10</depend>
+  <depend>gz-transport13</depend>
   <depend>gz-plugin2</depend>
   <depend>boost</depend>
   <test_depend>ament_lint_auto</test_depend>
