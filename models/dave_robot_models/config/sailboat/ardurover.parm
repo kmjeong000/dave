@@ -52,9 +52,9 @@ SAIL_ANGLE_MIN   0
 SAIL_ANGLE_MAX   90
 SAIL_ANGLE_IDEAL 35
 SAIL_HEEL_MAX    60
-SAIL_NO_GO_ANGLE 45
+SAIL_NO_GO_ANGLE 60
 SAIL_WNDSPD_MIN  0
-SAIL_XTRACK_MAX  2
+SAIL_XTRACK_MAX  10
 
 # Sailing loiter radius.
 SAIL_LOIT_RADIUS 5
@@ -68,6 +68,16 @@ ATC_SAIL_I       0.0
 ATC_SAIL_D       0.0
 ATC_SAIL_IMAX    10
 
+# ============================================================
+# Rover steering control tuning
+# ============================================================
+
+ATC_STR_ANG_P    2.0
+ATC_STR_RAT_FF   0.5
+ATC_STR_RAT_P    0.2
+ATC_STR_RAT_I    0.0
+ATC_STR_RAT_D    0.01
+ATC_STR_RAT_IMAX 0.5
 
 # ============================================================
 # Servo output mapping
