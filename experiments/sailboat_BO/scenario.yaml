@@ -1,0 +1,183 @@
+study:
+  name: sailboat_bo_v1
+  namespace: sailboat
+  seed: 42
+  base_param_file: models/dave_robot_models/config/sailboat/ardurover.parm
+  launch_file: examples/dave_demos/launch/dave_robot.launch.py
+  world_template_dir: models/dave_worlds/worlds
+  world_output_dir: experiments/sailboat_BO/results/generated_worlds
+  home_llh: [44.65870, -124.06556, 0.0]
+  repeats_per_scenario: 2
+  use_mavproxy: false
+  use_mavros: false
+  mavlink_endpoint: tcp:127.0.0.1:5760
+  mavlink_connect_timeout_s: 120
+  mavlink_release_timeout_s: 15
+  mission_seq_home_offset: true
+  sitl_start_delay_s: 10
+  arm_initial_delay_s: 30
+  arm_total_timeout_s: 120
+  arm_retry_interval_s: 15
+  force_arm_timeout_s: 30
+  force_arm_fallback: true
+  post_trial_cooldown_s: 5
+  gui: true
+  headless: true
+  paused: false
+  verbose: 0
+  execution_backend: local
+  docker_container: rover-debug-shell
+  container_repo_root: /home/docker/sailboat_ws/src/dave
+
+search_space:
+  - {name: SAIL_ANGLE_IDEAL, type: float, low: 20.0, high: 50.0}
+  - {name: SAIL_NO_GO_ANGLE, type: float, low: 40.0, high: 70.0}
+  - {name: SAIL_XTRACK_MAX, type: float, low: 4.0, high: 20.0}
+  - {name: ATC_SAIL_P, type: float, low: 0.03, high: 0.40}
+  - {name: ATC_STR_ANG_P, type: float, low: 0.8, high: 4.0}
+  - {name: ATC_STR_RAT_FF, type: float, low: 0.10, high: 1.20}
+
+termination:
+  timeout_s: 240
+  success_radius_m: 5.0
+  min_speed_mps: 0.25
+  stuck_window_s: 20
+  stuck_min_progress_delta_m: 0.5
+  min_progress_delta_m: 2.0
+  no_progress_window_s: 25
+  no_progress_margin_m: 0.25
+  no_progress_confirm_s: 5
+  position_source: gazebo_odometry
+  max_roll_deg: 45
+  roll_source: gazebo_odometry
+  roll_grace_period_s: 10
+  roll_violation_window_s: 3
+  local_waypoint_capture: true
+  waypoint_capture_radius_m: 5.0
+  waypoint_capture_hold_s: 1.0
+
+logging:
+  sample_hz: 5
+  save_rosbag2: false
+  csv_fields:
+    - sim_time_s
+    - elapsed_sim_s
+    - elapsed_wall_s
+    - realtime_factor
+    - x_m
+    - y_m
+    - x_mav_m
+    - y_mav_m
+    - x_gz_odom_m
+    - y_gz_odom_m
+    - yaw_rad
+    - yaw_mav_rad
+    - yaw_gz_odom_rad
+    - surge_speed_mps
+    - surge_speed_mav_mps
+    - surge_speed_gz_odom_mps
+    - position_source_used
+    - position_source_valid
+    - roll_deg
+    - roll_mav_deg
+    - roll_gz_odom_deg
+    - roll_source_used
+    - roll_source_valid
+    - rudder_cmd_rad
+    - sail_cmd_rad
+    - mission_seq_raw
+    - mission_reached_raw
+    - mission_reached_valid
+    - waypoint_index_raw
+    - waypoint_index
+    - waypoint_completed_count
+    - waypoint_capture_count
+    - waypoint_capture_active
+    - waypoint_captured_this_sample
+    - distance_to_wp_m
+    - nav_wp_dist_m
+    - cross_track_error_m
+    - nav_xtrack_error_m
+    - progress_ratio
+    - progress_along_path_m
+    - wind_speed_mps
+    - wind_direction_rad
+
+scenarios:
+  - id: train_crosswind_straight
+    split: train
+    termination:
+      timeout_s: 480
+    world:
+      template: waves_wind
+      internal_world_name: waves
+      wind_world_xyz_mps: [0.0, 8.0, 0.0]
+      wind_mag_noise_stddev: 0.0
+      wind_dir_noise_stddev: 0.0
+      wind_mag_sin_amp_percent: 0.0
+      wind_dir_sin_amp_deg: 0.0
+    spawn:
+      x_m: 0.0
+      y_m: 0.0
+      z_m: 0.2
+      yaw_deg: 0.0
+    mission:
+      frame: local_enu_m
+      waypoints: [[60, 0], [-60, 0]]
+
+  - id: train_upwind_tack
+    split: train
+    world:
+      template: waves_wind
+      internal_world_name: waves
+      wind_world_xyz_mps: [0.0, 8.0, 0.0]
+      wind_mag_noise_stddev: 0.0
+      wind_dir_noise_stddev: 0.0
+      wind_mag_sin_amp_percent: 0.0
+      wind_dir_sin_amp_deg: 0.0
+    spawn:
+      x_m: 0.0
+      y_m: 0.0
+      z_m: 0.2
+      yaw_deg: 90.0
+    mission:
+      frame: local_enu_m
+      waypoints: [[0, 60], [0, -60]]
+
+  - id: train_dogleg
+    split: train
+    world:
+      template: waves_wind
+      internal_world_name: waves
+      wind_world_xyz_mps: [0.0, 8.0, 0.0]
+      wind_mag_noise_stddev: 0.0
+      wind_dir_noise_stddev: 0.0
+      wind_mag_sin_amp_percent: 0.0
+      wind_dir_sin_amp_deg: 0.0
+    spawn:
+      x_m: 0.0
+      y_m: 0.0
+      z_m: 0.2
+      yaw_deg: 26.565
+    mission:
+      frame: local_enu_m
+      waypoints: [[40, 20], [80, -20], [120, 0]]
+
+  - id: eval_long_oblique
+    split: eval
+    world:
+      template: waves_wind
+      internal_world_name: waves
+      wind_world_xyz_mps: [0.0, 8.0, 0.0]
+      wind_mag_noise_stddev: 0.0
+      wind_dir_noise_stddev: 0.0
+      wind_mag_sin_amp_percent: 0.0
+      wind_dir_sin_amp_deg: 0.0
+    spawn:
+      x_m: 0.0
+      y_m: 0.0
+      z_m: 0.2
+      yaw_deg: 59.036
+    mission:
+      frame: local_enu_m
+      waypoints: [[30, 50], [60, 100], [90, 140]]

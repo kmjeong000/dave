@@ -5,7 +5,9 @@ set(CMAKE_SUPPRESS_DEVELOPER_WARNINGS TRUE CACHE BOOL
     "Suppress developer warnings" FORCE)
 # Set CMP0144 to NEW to ensure find_package
 # uses upper-case <PACKAGENAME>_ROOT variables.
-cmake_policy(SET CMP0144 NEW)
+if(POLICY CMP0144)
+  cmake_policy(SET CMP0144 NEW)
+endif()
 
 project(multibeam_sonar)
 

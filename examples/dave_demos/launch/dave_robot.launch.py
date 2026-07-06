@@ -1,8 +1,14 @@
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription, OpaqueFunction
-from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
-from launch.launch_description_sources import PythonLaunchDescriptionSource
+from launch.actions import (
+    DeclareLaunchArgument,
+    ExecuteProcess,
+    IncludeLaunchDescription,
+    OpaqueFunction,
+    TimerAction,
+)
 from launch.conditions import IfCondition
+from launch.substitutions import LaunchConfiguration, PathJoinSubstitution, PythonExpression
+from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch_ros.substitutions import FindPackageShare
 
 
@@ -22,6 +28,7 @@ def launch_setup(context, *args, **kwargs):
     pitch = LaunchConfiguration("pitch")
     yaw = LaunchConfiguration("yaw")
     use_ned_frame = LaunchConfiguration("use_ned_frame")
+    gui_client_delay = LaunchConfiguration("gui_client_delay")
     start_sitl = LaunchConfiguration("start_sitl")
     start_mavros = LaunchConfiguration("start_mavros")
     mavproxy_args = LaunchConfiguration("mavproxy_args")
@@ -67,7 +74,27 @@ def launch_setup(context, *args, **kwargs):
         launch_arguments=[
             ("gz_args", gz_args),
         ],
-        condition=IfCondition(gui),
+    )
+
+    split_gui_client = TimerAction(
+        period=float(gui_client_delay.perform(context)),
+        actions=[
+            ExecuteProcess(
+                cmd=["gz", "sim", "-g"],
+                output="screen",
+            )
+        ],
+        condition=IfCondition(
+            PythonExpression(
+                [
+                    "'",
+                    gui,
+                    "' == 'true' and '",
+                    headless,
+                    "' == 'true'",
+                ]
+            )
+        ),
     )
 
     # Include the second launch file with model name
@@ -108,7 +135,7 @@ def launch_setup(context, *args, **kwargs):
         }.items(),
     )
 
-    include = [gz_sim_launch, robot_launch]
+    include = [gz_sim_launch, split_gui_client, robot_launch]
 
     return include
 
@@ -146,6 +173,11 @@ def generate_launch_description():
             "verbose",
             default_value="0",
             description="Adjust level of console verbosity",
+        ),
+        DeclareLaunchArgument(
+            "gui_client_delay",
+            default_value="2.0",
+            description="Delay before attaching a separate Gazebo GUI client when gui=true and headless=true",
         ),
         DeclareLaunchArgument(
             "world_name",

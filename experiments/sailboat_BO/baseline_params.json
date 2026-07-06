@@ -1,0 +1,8 @@
+{
+  "SAIL_ANGLE_IDEAL": 35.0,
+  "SAIL_NO_GO_ANGLE": 60.0,
+  "SAIL_XTRACK_MAX": 10.0,
+  "ATC_SAIL_P": 0.1,
+  "ATC_STR_ANG_P": 2.0,
+  "ATC_STR_RAT_FF": 0.5
+}

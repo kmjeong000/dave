@@ -55,8 +55,6 @@ SAIL_HEEL_MAX    60
 SAIL_NO_GO_ANGLE 60
 SAIL_WNDSPD_MIN  0
 SAIL_XTRACK_MAX  10
-
-# Sailing loiter radius.
 SAIL_LOIT_RADIUS 5
 
 # ============================================================

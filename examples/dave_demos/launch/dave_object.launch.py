@@ -1,8 +1,15 @@
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription, OpaqueFunction
+from launch.actions import (
+    DeclareLaunchArgument,
+    ExecuteProcess,
+    IncludeLaunchDescription,
+    OpaqueFunction,
+    TimerAction,
+)
 from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.conditions import IfCondition
+from launch.substitutions import PythonExpression
 from launch_ros.substitutions import FindPackageShare
 
 
@@ -22,6 +29,7 @@ def launch_setup(context, *args, **kwargs):
     pitch = LaunchConfiguration("pitch")
     yaw = LaunchConfiguration("yaw")
     use_ned_frame = LaunchConfiguration("use_ned_frame")
+    gui_client_delay = LaunchConfiguration("gui_client_delay")
 
     if world_name.perform(context) != "empty.sdf":
         world_name = LaunchConfiguration("world_name").perform(context)
@@ -59,6 +67,27 @@ def launch_setup(context, *args, **kwargs):
         condition=IfCondition(gui),
     )
 
+    split_gui_client = TimerAction(
+        period=float(gui_client_delay.perform(context)),
+        actions=[
+            ExecuteProcess(
+                cmd=["gz", "sim", "-g"],
+                output="screen",
+            )
+        ],
+        condition=IfCondition(
+            PythonExpression(
+                [
+                    "'",
+                    gui,
+                    "' == 'true' and '",
+                    headless,
+                    "' == 'true'",
+                ]
+            )
+        ),
+    )
+
     object_launch = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(
             [
@@ -85,7 +114,7 @@ def launch_setup(context, *args, **kwargs):
         }.items(),
     )
 
-    return [gz_sim_launch, object_launch]
+    return [gz_sim_launch, split_gui_client, object_launch]
 
 
 def generate_launch_description():
@@ -120,6 +149,11 @@ def generate_launch_description():
             "verbose",
             default_value="0",
             description="Adjust level of console verbosity",
+        ),
+        DeclareLaunchArgument(
+            "gui_client_delay",
+            default_value="2.0",
+            description="Delay before attaching a separate Gazebo GUI client when gui=true and headless=true",
         ),
         DeclareLaunchArgument(
             "world_name",

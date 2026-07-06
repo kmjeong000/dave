@@ -196,10 +196,9 @@ def generate_launch_description():
             "-P",
             pitch,
             "-Y",
-            "3.1416",
+            yaw,
         ],
         output="both",
-        condition=IfCondition(gui),
         parameters=[{"use_sim_time": use_sim_time}],
     )
 

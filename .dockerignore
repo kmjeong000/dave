@@ -11,3 +11,5 @@ log
 **/.pytest_cache
 **/.mypy_cache
 **/.DS_Store
+experiments/sailboat_BO/results
+experiments/sailboat_BO/results/**

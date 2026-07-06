@@ -9,7 +9,6 @@ RUN apt-get update && \
     rm -rf /var/lib/apt/lists/*
 RUN mkdir -p /run/user/1000 && chown ${USERNAME}:${USERNAME} /run/user/1000
 
-USER root
 RUN mkdir -p /home/${USERNAME}/sailboat_ws/src && \
     chown -R ${USERNAME}:${USERNAME} /home/${USERNAME}/sailboat_ws
 
@@ -19,20 +18,25 @@ WORKDIR /home/${USERNAME}
 ENV SAILBOAT_VENV=/home/${USERNAME}/venv
 RUN python3 -m venv --system-site-packages "${SAILBOAT_VENV}" && \
     "${SAILBOAT_VENV}/bin/pip" install --no-cache-dir --upgrade "pip<26" "setuptools<80" "wheel" && \
-    "${SAILBOAT_VENV}/bin/pip" install --no-cache-dir pymavlink pyyaml  MAVProxy
+    "${SAILBOAT_VENV}/bin/pip" install --no-cache-dir pymavlink pyyaml MAVProxy
 
 ENV SAILBOAT_WS=/home/${USERNAME}/sailboat_ws
+ENV SAILBOAT_SRC_STAGING=/home/${USERNAME}/sailboat_src_staging
 
 ARG SAILBOAT_CACHE_BUST=0
 RUN echo "SAILBOAT_CACHE_BUST=$SAILBOAT_CACHE_BUST" >/dev/null
-COPY --chown=$USERNAME:$USERNAME . $SAILBOAT_WS/src/dave/
-WORKDIR $SAILBOAT_WS
+
+COPY --chown=${USERNAME}:${USERNAME} . ${SAILBOAT_SRC_STAGING}/
+
+WORKDIR ${SAILBOAT_WS}
+RUN python3 ${SAILBOAT_SRC_STAGING}/.docker/prepare_sailboat_workspace.py
+
 RUN . "/opt/ros/${ROS_DISTRO}/setup.sh" && \
     . "/opt/dave_ws/install/setup.sh" && \
-    colcon build
+    colcon build --event-handlers console_direct+
+RUN rm -rf ${SAILBOAT_SRC_STAGING}
 
 USER root
-# COPY --chown=${USERNAME}:${USERNAME} world/gui.config /opt/ros/jazzy/opt/gz_sim_vendor/share/gz/gz-sim8/gui/gui.config
 RUN mkdir -p /tmp/runtime-${USERNAME} && \
     chown ${USERNAME}:${USERNAME} /tmp/runtime-${USERNAME} && \
     chmod 700 /tmp/runtime-${USERNAME}
@@ -56,9 +60,8 @@ RUN echo "source /opt/ros/${ROS_DISTRO}/setup.bash" >> ~/.bashrc && \
 
 COPY .docker/sailboat_entrypoint.sh /usr/local/bin/sailboat_entrypoint.sh
 USER root
-RUN chmod 0755 /usr/local/bin/sailboat_entrypoint.sh && \
-    chmod 0755 /home/docker/sailboat_ws/src/dave/.docker/sailboat_entrypoint.sh
+RUN chmod 0755 /usr/local/bin/sailboat_entrypoint.sh
 USER ${USERNAME}
 WORKDIR /home/${USERNAME}
-ENTRYPOINT [ "/usr/local/bin/sailboat_entrypoint.sh" ]
+ENTRYPOINT ["/usr/local/bin/sailboat_entrypoint.sh"]
 CMD []
