@@ -139,6 +139,15 @@ class MissionWaypoint:
     y_m: float
 
 
+@dataclass(frozen=True)
+class MissionUploadItem:
+    raw_seq: int
+    x_m: float
+    y_m: float
+    is_home: bool
+    user_waypoint_index: int | None
+
+
 @dataclass
 class TelemetryState:
     sim_time_s: float | None = None
@@ -1528,22 +1537,29 @@ def build_mission_waypoints(context: TrialContext) -> list[MissionWaypoint]:
     ]
 
 
-def build_remaining_mission_waypoints(
+def build_mission_upload_items(
     mission_waypoints: list[MissionWaypoint],
-    start_index: int,
-) -> list[MissionWaypoint]:
-    if start_index < 0 or start_index >= len(mission_waypoints):
-        return []
-    remaining: list[MissionWaypoint] = []
-    for new_seq, waypoint in enumerate(mission_waypoints[start_index:]):
-        remaining.append(
-            MissionWaypoint(
-                seq=new_seq,
-                x_m=waypoint.x_m,
-                y_m=waypoint.y_m,
-            )
+) -> list[MissionUploadItem]:
+    upload_items = [
+        MissionUploadItem(
+            raw_seq=0,
+            x_m=0.0,
+            y_m=0.0,
+            is_home=True,
+            user_waypoint_index=None,
         )
-    return remaining
+    ]
+    upload_items.extend(
+        MissionUploadItem(
+            raw_seq=index + 1,
+            x_m=waypoint.x_m,
+            y_m=waypoint.y_m,
+            is_home=False,
+            user_waypoint_index=waypoint.seq,
+        )
+        for index, waypoint in enumerate(mission_waypoints)
+    )
+    return upload_items
 
 
 def advance_mission_current_to_waypoint(
@@ -1576,63 +1592,55 @@ def advance_mission_current_to_waypoint(
         next_waypoint_index,
         waypoint_count,
     )
-    candidate_seqs: list[int] = []
-    for candidate in (int(next_waypoint_index), int(target_raw_seq)):
-        if candidate not in candidate_seqs:
-            candidate_seqs.append(candidate)
-
-    per_candidate_timeout_s = max(2.0, timeout_s / max(len(candidate_seqs), 1))
     command_id = getattr(mavlink, "MAV_CMD_DO_SET_MISSION_CURRENT", None)
+    master.mav.mission_set_current_send(
+        master.target_system,
+        master.target_component,
+        target_raw_seq,
+    )
+    if command_id is not None:
+        try:
+            master.mav.command_long_send(
+                master.target_system,
+                master.target_component,
+                command_id,
+                0,
+                float(target_raw_seq),
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+            )
+        except Exception:
+            pass
 
-    for candidate_seq in candidate_seqs:
-        master.mav.mission_set_current_send(
-            master.target_system,
-            master.target_component,
-            candidate_seq,
+    deadline = time.monotonic() + timeout_s
+    while time.monotonic() < deadline:
+        msg = master.recv_match(
+            type=[
+                "MISSION_CURRENT",
+                "MISSION_ITEM_REACHED",
+                "GLOBAL_POSITION_INT",
+                "ATTITUDE",
+                "VFR_HUD",
+                "SERVO_OUTPUT_RAW",
+                "NAV_CONTROLLER_OUTPUT",
+            ],
+            blocking=True,
+            timeout=0.5,
         )
-        if command_id is not None:
-            try:
-                master.mav.command_long_send(
-                    master.target_system,
-                    master.target_component,
-                    command_id,
-                    0,
-                    float(candidate_seq),
-                    0.0,
-                    0.0,
-                    0.0,
-                    0.0,
-                    0.0,
-                    0.0,
-                )
-            except Exception:
-                pass
-
-        deadline = time.monotonic() + per_candidate_timeout_s
-        while time.monotonic() < deadline:
-            msg = master.recv_match(
-                type=[
-                    "MISSION_CURRENT",
-                    "MISSION_ITEM_REACHED",
-                    "GLOBAL_POSITION_INT",
-                    "ATTITUDE",
-                    "VFR_HUD",
-                    "SERVO_OUTPUT_RAW",
-                    "NAV_CONTROLLER_OUTPUT",
-                ],
-                blocking=True,
-                timeout=0.5,
-            )
-            if msg is None:
-                continue
-            update_state_from_message(state, msg, home_lat_deg, home_lon_deg, servo_params, mission_frame)
-            current_waypoint_index = mission_seq_to_waypoint_index(
-                context,
-                state.mission_seq,
-                waypoint_count,
-            )
-            if current_waypoint_index >= next_waypoint_index:
-                return True
+        if msg is None:
+            continue
+        update_state_from_message(state, msg, home_lat_deg, home_lon_deg, servo_params, mission_frame)
+        current_waypoint_index = mission_seq_to_waypoint_index(
+            context,
+            state.mission_seq,
+            waypoint_count,
+        )
+        if current_waypoint_index >= next_waypoint_index:
+            return True
     return False
 
 
@@ -1667,26 +1675,27 @@ def set_vehicle_mode(master: Any, mode_name: str, timeout_s: float = 10.0) -> No
     raise TimeoutError(f"Timed out waiting for {mode_name} mode")
 
 
-def retarget_remaining_mission_after_local_capture(
+def retarget_mission_after_local_capture(
     master: Any,
     context: TrialContext,
     mission_waypoints: list[MissionWaypoint],
     *,
     next_waypoint_index: int,
 ) -> bool:
-    remaining_waypoints = build_remaining_mission_waypoints(
-        mission_waypoints,
-        next_waypoint_index,
-    )
-    if not remaining_waypoints:
+    if next_waypoint_index < 0 or next_waypoint_index >= len(mission_waypoints):
         return False
 
     print(
-        "[run_trial] re-uploading remaining mission after local capture: "
-        f"original_next_waypoint_index={next_waypoint_index}, "
-        f"remaining_waypoint_count={len(remaining_waypoints)}"
+        "[run_trial] re-uploading full mission after local capture: "
+        f"next_waypoint_index={next_waypoint_index}, "
+        f"waypoint_count={len(mission_waypoints)}"
     )
-    upload_mission(master, context, remaining_waypoints)
+    upload_mission(
+        master,
+        context,
+        mission_waypoints,
+        start_waypoint_index=next_waypoint_index,
+    )
     set_vehicle_mode(master, "AUTO", timeout_s=10.0)
     return True
 
@@ -1717,85 +1726,273 @@ def wait_for_mission_protocol_ready(master: Any, timeout_s: float = 30.0) -> int
     )
 
 
-def send_mission_waypoint(
+def mission_item_lat_lon_deg(msg: Any) -> tuple[float, float]:
+    if msg.get_type() == "MISSION_ITEM_INT":
+        return float(msg.x) * 1e-7, float(msg.y) * 1e-7
+    return float(msg.x), float(msg.y)
+
+
+def acknowledge_mission_download(master: Any, mavlink: Any) -> None:
+    mission_ack_send = getattr(master.mav, "mission_ack_send", None)
+    if mission_ack_send is None:
+        return
+    try:
+        mission_ack_send(
+            master.target_system,
+            master.target_component,
+            mavlink.MAV_MISSION_ACCEPTED,
+            getattr(mavlink, "MAV_MISSION_TYPE_MISSION", 0),
+        )
+    except TypeError:
+        mission_ack_send(
+            master.target_system,
+            master.target_component,
+            mavlink.MAV_MISSION_ACCEPTED,
+        )
+
+
+def download_mission_items(
+    master: Any,
+    expected_count: int,
+    *,
+    timeout_s: float = 15.0,
+) -> list[Any]:
+    mavlink = get_mavlink_module(master)
+    master.mav.mission_request_list_send(master.target_system, master.target_component)
+    count_msg = wait_for_message(master, ["MISSION_COUNT"], timeout_s=min(timeout_s, 5.0))
+    if count_msg is None:
+        raise TimeoutError("Timed out waiting for MISSION_COUNT during mission verification")
+
+    actual_count = int(count_msg.count)
+    if actual_count != expected_count:
+        raise RuntimeError(
+            "Mission verification count mismatch: "
+            f"expected={expected_count}, actual={actual_count}"
+        )
+
+    downloaded: list[Any] = []
+    deadline = time.monotonic() + timeout_s
+    for expected_seq in range(expected_count):
+        item = None
+        while time.monotonic() < deadline:
+            master.mav.mission_request_int_send(
+                master.target_system,
+                master.target_component,
+                expected_seq,
+            )
+            candidate = wait_for_message(
+                master,
+                ["MISSION_ITEM_INT", "MISSION_ITEM"],
+                timeout_s=min(2.0, max(0.0, deadline - time.monotonic())),
+            )
+            if candidate is None:
+                continue
+            if int(candidate.seq) == expected_seq:
+                item = candidate
+                break
+        if item is None:
+            raise TimeoutError(
+                f"Timed out reading mission item seq={expected_seq} during verification"
+            )
+        downloaded.append(item)
+
+    acknowledge_mission_download(master, mavlink)
+    return downloaded
+
+
+def verify_uploaded_mission(
+    master: Any,
+    context: TrialContext,
+    upload_items: list[MissionUploadItem],
+    *,
+    coordinate_tolerance_m: float = 0.5,
+    home_coordinate_tolerance_m: float = 10.0,
+) -> None:
+    mavlink = get_mavlink_module(master)
+    mission_frame = selected_mission_frame(context)
+    home_lat_deg = float(context.study_cfg["home_llh"][0])
+    home_lon_deg = float(context.study_cfg["home_llh"][1])
+    downloaded = download_mission_items(master, len(upload_items))
+    home_error_m = 0.0
+    max_waypoint_error_m = 0.0
+
+    for expected, actual in zip(upload_items, downloaded):
+        actual_command = int(getattr(actual, "command", -1))
+        if actual_command != int(mavlink.MAV_CMD_NAV_WAYPOINT):
+            raise RuntimeError(
+                "Mission verification command mismatch: "
+                f"seq={expected.raw_seq}, expected={mavlink.MAV_CMD_NAV_WAYPOINT}, "
+                f"actual={actual_command}"
+            )
+
+        if expected.is_home:
+            expected_lat_deg = home_lat_deg
+            expected_lon_deg = home_lon_deg
+        else:
+            expected_lat_deg, expected_lon_deg = mission_xy_to_geodetic(
+                mission_frame,
+                home_lat_deg,
+                home_lon_deg,
+                expected.x_m,
+                expected.y_m,
+            )
+        actual_lat_deg, actual_lon_deg = mission_item_lat_lon_deg(actual)
+        east_error_m, north_error_m = geodetic_to_enu(
+            expected_lat_deg,
+            expected_lon_deg,
+            actual_lat_deg,
+            actual_lon_deg,
+        )
+        coordinate_error_m = math.hypot(east_error_m, north_error_m)
+        allowed_error_m = (
+            home_coordinate_tolerance_m if expected.is_home else coordinate_tolerance_m
+        )
+        if expected.is_home:
+            home_error_m = coordinate_error_m
+        else:
+            max_waypoint_error_m = max(max_waypoint_error_m, coordinate_error_m)
+        if coordinate_error_m > allowed_error_m:
+            raise RuntimeError(
+                "Mission verification coordinate mismatch: "
+                f"seq={expected.raw_seq}, error_m={coordinate_error_m:.3f}, "
+                f"tolerance_m={allowed_error_m:.3f}"
+            )
+
+    print(
+        "[run_trial] mission verified: "
+        f"item_count={len(upload_items)}, home_seq=0, "
+        f"navigation_seq=1..{len(upload_items) - 1}, "
+        f"home_error_m={home_error_m:.3f}, "
+        f"max_waypoint_error_m={max_waypoint_error_m:.3f}"
+    )
+
+
+def send_mission_item(
     master: Any,
     mavlink: Any,
     msg_type: str,
     target_system: int,
     target_component: int,
-    waypoint: MissionWaypoint,
+    item: MissionUploadItem,
     success_radius_m: float,
     mission_frame: str,
     home_lat_deg: float,
     home_lon_deg: float,
+    home_alt_m: float,
 ) -> None:
-    lat_deg, lon_deg = mission_xy_to_geodetic(
-        mission_frame,
-        home_lat_deg,
-        home_lon_deg,
-        waypoint.x_m,
-        waypoint.y_m,
-    )
+    if item.is_home:
+        lat_deg = home_lat_deg
+        lon_deg = home_lon_deg
+        frame = (
+            getattr(mavlink, "MAV_FRAME_GLOBAL", mavlink.MAV_FRAME_GLOBAL_RELATIVE_ALT)
+            if msg_type == "MISSION_REQUEST"
+            else getattr(
+                mavlink,
+                "MAV_FRAME_GLOBAL_INT",
+                mavlink.MAV_FRAME_GLOBAL_RELATIVE_ALT_INT,
+            )
+        )
+        altitude_m = home_alt_m
+        item_success_radius_m = 0.0
+    else:
+        lat_deg, lon_deg = mission_xy_to_geodetic(
+            mission_frame,
+            home_lat_deg,
+            home_lon_deg,
+            item.x_m,
+            item.y_m,
+        )
+        frame = (
+            mavlink.MAV_FRAME_GLOBAL_RELATIVE_ALT
+            if msg_type == "MISSION_REQUEST"
+            else mavlink.MAV_FRAME_GLOBAL_RELATIVE_ALT_INT
+        )
+        altitude_m = 0.0
+        item_success_radius_m = success_radius_m
+
     current = 0
     autocontinue = 1
     hold_time_s = 0.0
     pass_radius_m = 0.0
     desired_yaw_deg = 0.0
-    relative_alt_m = 0.0
 
     if msg_type == "MISSION_REQUEST":
         master.mav.mission_item_send(
             target_system,
             target_component,
-            waypoint.seq,
-            mavlink.MAV_FRAME_GLOBAL_RELATIVE_ALT,
+            item.raw_seq,
+            frame,
             mavlink.MAV_CMD_NAV_WAYPOINT,
             current,
             autocontinue,
             hold_time_s,
-            success_radius_m,
+            item_success_radius_m,
             pass_radius_m,
             desired_yaw_deg,
             float(lat_deg),
             float(lon_deg),
-            relative_alt_m,
+            altitude_m,
         )
         return
 
     master.mav.mission_item_int_send(
         target_system,
         target_component,
-        waypoint.seq,
-        mavlink.MAV_FRAME_GLOBAL_RELATIVE_ALT_INT,
+        item.raw_seq,
+        frame,
         mavlink.MAV_CMD_NAV_WAYPOINT,
         current,
         autocontinue,
         hold_time_s,
-        success_radius_m,
+        item_success_radius_m,
         pass_radius_m,
         desired_yaw_deg,
         int(round(lat_deg * 1e7)),
         int(round(lon_deg * 1e7)),
-        relative_alt_m,
+        altitude_m,
     )
 
 
-def upload_mission(master: Any, context: TrialContext, mission_waypoints: list[MissionWaypoint]) -> None:
+def upload_mission(
+    master: Any,
+    context: TrialContext,
+    mission_waypoints: list[MissionWaypoint],
+    *,
+    start_waypoint_index: int = 0,
+) -> None:
     if not mission_waypoints:
         raise ValueError("Mission is empty")
+    if not mission_seq_home_offset_enabled(context):
+        raise ValueError(
+            "Explicit HOME mission upload requires study.mission_seq_home_offset=true"
+        )
+    if start_waypoint_index < 0 or start_waypoint_index >= len(mission_waypoints):
+        raise ValueError(
+            "start_waypoint_index is outside the mission: "
+            f"index={start_waypoint_index}, waypoint_count={len(mission_waypoints)}"
+        )
 
     home_lat_deg = float(context.study_cfg["home_llh"][0])
     home_lon_deg = float(context.study_cfg["home_llh"][1])
+    home_alt_m = float(context.study_cfg["home_llh"][2])
     mission_frame = selected_mission_frame(context)
     success_radius_m = float(context.termination_cfg.get("success_radius_m", 5.0))
     mavlink = get_mavlink_module(master)
     target_system = master.target_system
     target_component = master.target_component
+    upload_items = build_mission_upload_items(mission_waypoints)
+    mission_item_count = len(upload_items)
+    first_navigation_seq = waypoint_index_to_mission_raw_seq(
+        context,
+        start_waypoint_index,
+        len(mission_waypoints),
+    )
     current_mission_count = wait_for_mission_protocol_ready(master, timeout_s=30.0)
     upload_attempts = 3
     print(
         "[run_trial] uploading mission: "
-        f"frame={mission_frame}, waypoint_count={len(mission_waypoints)}"
+        f"frame={mission_frame}, waypoint_count={len(mission_waypoints)}, "
+        f"mission_item_count={mission_item_count}, start_seq={first_navigation_seq}"
     )
 
     for attempt_idx in range(upload_attempts):
@@ -1809,7 +2006,7 @@ def upload_mission(master: Any, context: TrialContext, mission_waypoints: list[M
             clear_name = mission_result_name(mavlink, clear_code)
             raise RuntimeError(f"MISSION_CLEAR_ALL failed with ACK type={clear_code} ({clear_name})")
 
-        master.mav.mission_count_send(target_system, target_component, len(mission_waypoints))
+        master.mav.mission_count_send(target_system, target_component, mission_item_count)
         retries_left = REQUEST_RETRIES
         retry_upload = False
 
@@ -1817,7 +2014,7 @@ def upload_mission(master: Any, context: TrialContext, mission_waypoints: list[M
             msg = wait_for_message(master, ["MISSION_REQUEST_INT", "MISSION_REQUEST", "MISSION_ACK"], timeout_s=3.0)
             if msg is None:
                 retries_left -= 1
-                master.mav.mission_count_send(target_system, target_component, len(mission_waypoints))
+                master.mav.mission_count_send(target_system, target_component, mission_item_count)
                 continue
 
             msg_type = msg.get_type()
@@ -1832,27 +2029,44 @@ def upload_mission(master: Any, context: TrialContext, mission_waypoints: list[M
                         "Mission upload rejected with "
                         f"ACK type={ack_code} ({ack_name}), "
                         f"existing_mission_count={current_mission_count}, "
-                        f"requested_mission_count={len(mission_waypoints)}"
+                        f"requested_mission_count={mission_item_count}"
                     )
-                master.mav.mission_set_current_send(target_system, target_component, 0)
+                try:
+                    verify_uploaded_mission(master, context, upload_items)
+                except (RuntimeError, TimeoutError) as exc:
+                    if attempt_idx < (upload_attempts - 1):
+                        print(
+                            "[run_trial] warning: mission verification failed; "
+                            f"retrying upload: attempt={attempt_idx + 1}/{upload_attempts}, "
+                            f"error={type(exc).__name__}: {exc}"
+                        )
+                        retry_upload = True
+                        break
+                    raise
+                master.mav.mission_set_current_send(
+                    target_system,
+                    target_component,
+                    first_navigation_seq,
+                )
                 return
 
             seq = int(msg.seq)
-            if seq < 0 or seq >= len(mission_waypoints):
+            if seq < 0 or seq >= mission_item_count:
                 raise RuntimeError(f"Vehicle requested invalid mission item seq={seq}")
 
-            waypoint = mission_waypoints[seq]
-            send_mission_waypoint(
+            item = upload_items[seq]
+            send_mission_item(
                 master,
                 mavlink,
                 msg_type,
                 target_system,
                 target_component,
-                waypoint,
+                item,
                 success_radius_m,
                 mission_frame,
                 home_lat_deg,
                 home_lon_deg,
+                home_alt_m,
             )
 
         if retry_upload and attempt_idx < (upload_attempts - 1):
@@ -2472,10 +2686,10 @@ def poll_samples(
                         print(
                             "[run_trial] warning: local capture advanced tracker, but ArduPilot "
                             f"MISSION_CURRENT did not confirm next_waypoint_index={next_waypoint_index} "
-                            "within timeout; trying remaining-mission reupload fallback"
+                            "within timeout; trying full-mission reupload fallback"
                         )
                         try:
-                            retargeted = retarget_remaining_mission_after_local_capture(
+                            retargeted = retarget_mission_after_local_capture(
                                 master,
                                 context,
                                 mission_waypoints,
@@ -2483,20 +2697,20 @@ def poll_samples(
                             )
                         except Exception as exc:
                             print(
-                                "[run_trial] remaining-mission reupload fallback failed: "
+                                "[run_trial] full-mission reupload fallback failed: "
                                 f"{type(exc).__name__}: {exc}"
                             )
                         else:
                             if retargeted:
                                 local_capture_committed = True
                                 print(
-                                    "[run_trial] remaining-mission reupload fallback succeeded: "
+                                    "[run_trial] full-mission reupload fallback succeeded: "
                                     f"next_waypoint_index={next_waypoint_index}"
                                 )
                             else:
                                 print(
-                                    "[run_trial] remaining-mission reupload fallback skipped: "
-                                    f"no remaining waypoints from next_waypoint_index={next_waypoint_index}"
+                                    "[run_trial] full-mission reupload fallback skipped: "
+                                    f"invalid next_waypoint_index={next_waypoint_index}"
                                 )
                 else:
                     local_capture_committed = True
