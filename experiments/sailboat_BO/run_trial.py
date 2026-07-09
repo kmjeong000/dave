@@ -78,6 +78,8 @@ MESSAGE_NAME_TO_ID = {
     "MISSION_ITEM_REACHED": 46,
 }
 
+SUPPORTED_MISSION_FRAMES = {"local_enu_m", "gazebo_xy_m"}
+
 
 @dataclass(frozen=True)
 class TrialFiles:
@@ -1162,6 +1164,90 @@ def stop_launch_process(
         run_cleanup_token(execution, launch_plan.cleanup_token)
 
 
+def sail_force_gate_enabled(context: TrialContext) -> bool:
+    return bool(context.study_cfg.get("sail_force_gate_during_startup", True))
+
+
+def sail_force_enable_topic(context: TrialContext) -> str:
+    configured = str(context.study_cfg.get("sail_force_enable_topic", "")).strip()
+    if configured:
+        return configured
+    namespace = str(context.study_cfg.get("namespace", "sailboat")).strip("/") or "sailboat"
+    return f"/model/{namespace}/sail_lift_drag/enable"
+
+
+def publish_sail_force_enabled(
+    context: TrialContext,
+    execution: ExecutionConfig,
+    enabled: bool,
+    *,
+    reason: str,
+) -> None:
+    if not sail_force_gate_enabled(context):
+        return
+
+    topic = sail_force_enable_topic(context)
+    if enabled:
+        repeats = int(context.study_cfg.get("sail_force_enable_repeats", 3))
+        interval_s = float(context.study_cfg.get("sail_force_enable_repeat_interval_s", 0.15))
+    else:
+        repeats = int(context.study_cfg.get("sail_force_disable_repeats", 8))
+        interval_s = float(context.study_cfg.get("sail_force_disable_repeat_interval_s", 0.25))
+    repeats = max(1, repeats)
+    interval_s = max(0.0, interval_s)
+
+    gz_cmd = [
+        "gz",
+        "topic",
+        "-t",
+        topic,
+        "-m",
+        "gz.msgs.Boolean",
+        "-p",
+        f"data: {'true' if enabled else 'false'}",
+    ]
+    shell_cmd = " ".join(shlex.quote(part) for part in gz_cmd)
+    if execution.backend == "docker-exec":
+        if not execution.docker_container:
+            print("[run_trial] warning: cannot publish sail force gate without docker_container")
+            return
+        cmd = ["docker", "exec", "-i", execution.docker_container, "bash", "-lc", shell_cmd]
+    else:
+        cmd = ["bash", "-lc", shell_cmd]
+
+    last_result: subprocess.CompletedProcess[str] | None = None
+    for attempt_idx in range(repeats):
+        try:
+            last_result = subprocess.run(
+                cmd,
+                check=False,
+                capture_output=True,
+                text=True,
+                timeout=5.0,
+            )
+        except Exception as exc:
+            print(
+                "[run_trial] warning: failed to publish sail force gate: "
+                f"enabled={enabled}, reason={reason}, topic={topic}, error={exc}"
+            )
+            return
+        if attempt_idx < repeats - 1 and interval_s > 0.0:
+            time.sleep(interval_s)
+
+    if last_result is not None and last_result.returncode != 0:
+        stderr = (last_result.stderr or "").strip()
+        print(
+            "[run_trial] warning: sail force gate publish returned non-zero: "
+            f"enabled={enabled}, reason={reason}, topic={topic}, rc={last_result.returncode}, stderr={stderr}"
+        )
+        return
+
+    print(
+        "[run_trial] sail force gate: "
+        f"enabled={str(enabled).lower()}, reason={reason}, topic={topic}, repeats={repeats}"
+    )
+
+
 def require_pymavlink() -> Any:
     try:
         from pymavlink import mavutil
@@ -1221,6 +1307,39 @@ def read_param_map(param_file: Path) -> dict[str, float]:
     return values
 
 
+def selected_mission_frame(context: TrialContext) -> str:
+    raw_value = str(context.scenario_cfg.get("mission", {}).get("frame", "local_enu_m")).strip().lower()
+    aliases = {
+        "local_enu": "local_enu_m",
+        "local_enu_m": "local_enu_m",
+        "gazebo_xy": "gazebo_xy_m",
+        "gazebo_xy_m": "gazebo_xy_m",
+    }
+    frame = aliases.get(raw_value)
+    if frame not in SUPPORTED_MISSION_FRAMES:
+        raise ValueError(
+            f"Unsupported mission frame '{raw_value}'. Expected one of: {sorted(SUPPORTED_MISSION_FRAMES)}"
+        )
+    return frame
+
+
+def mission_xy_to_enu(frame: str, x_m: float, y_m: float) -> tuple[float, float]:
+    if frame == "local_enu_m":
+        return x_m, y_m
+    if frame == "gazebo_xy_m":
+        # ArduPilotPlugin maps Gazebo X to NED north and Gazebo -Y to NED east.
+        return -y_m, x_m
+    raise ValueError(f"Unsupported mission frame '{frame}'")
+
+
+def enu_to_mission_xy(frame: str, east_m: float, north_m: float) -> tuple[float, float]:
+    if frame == "local_enu_m":
+        return east_m, north_m
+    if frame == "gazebo_xy_m":
+        return north_m, -east_m
+    raise ValueError(f"Unsupported mission frame '{frame}'")
+
+
 def enu_to_geodetic(home_lat_deg: float, home_lon_deg: float, east_m: float, north_m: float) -> tuple[float, float]:
     lat0_rad = math.radians(home_lat_deg)
     d_lat = north_m / EARTH_RADIUS_M
@@ -1235,6 +1354,17 @@ def geodetic_to_enu(home_lat_deg: float, home_lon_deg: float, lat_deg: float, lo
     north_m = d_lat * EARTH_RADIUS_M
     east_m = d_lon * EARTH_RADIUS_M * math.cos(lat0_rad)
     return east_m, north_m
+
+
+def mission_xy_to_geodetic(
+    frame: str,
+    home_lat_deg: float,
+    home_lon_deg: float,
+    x_m: float,
+    y_m: float,
+) -> tuple[float, float]:
+    east_m, north_m = mission_xy_to_enu(frame, x_m, y_m)
+    return enu_to_geodetic(home_lat_deg, home_lon_deg, east_m, north_m)
 
 
 def pwm_to_surface_angle_rad(pwm: float | None, pwm_min: float, pwm_max: float, multiplier: float = 1.5708) -> float:
@@ -1431,6 +1561,7 @@ def advance_mission_current_to_waypoint(
     if next_waypoint_index < 0 or next_waypoint_index >= waypoint_count:
         return False
 
+    mission_frame = selected_mission_frame(context)
     current_waypoint_index = mission_seq_to_waypoint_index(
         context,
         state.mission_seq,
@@ -1494,7 +1625,7 @@ def advance_mission_current_to_waypoint(
             )
             if msg is None:
                 continue
-            update_state_from_message(state, msg, home_lat_deg, home_lon_deg, servo_params)
+            update_state_from_message(state, msg, home_lat_deg, home_lon_deg, servo_params, mission_frame)
             current_waypoint_index = mission_seq_to_waypoint_index(
                 context,
                 state.mission_seq,
@@ -1594,10 +1725,17 @@ def send_mission_waypoint(
     target_component: int,
     waypoint: MissionWaypoint,
     success_radius_m: float,
+    mission_frame: str,
     home_lat_deg: float,
     home_lon_deg: float,
 ) -> None:
-    lat_deg, lon_deg = enu_to_geodetic(home_lat_deg, home_lon_deg, waypoint.x_m, waypoint.y_m)
+    lat_deg, lon_deg = mission_xy_to_geodetic(
+        mission_frame,
+        home_lat_deg,
+        home_lon_deg,
+        waypoint.x_m,
+        waypoint.y_m,
+    )
     current = 0
     autocontinue = 1
     hold_time_s = 0.0
@@ -1648,12 +1786,17 @@ def upload_mission(master: Any, context: TrialContext, mission_waypoints: list[M
 
     home_lat_deg = float(context.study_cfg["home_llh"][0])
     home_lon_deg = float(context.study_cfg["home_llh"][1])
+    mission_frame = selected_mission_frame(context)
     success_radius_m = float(context.termination_cfg.get("success_radius_m", 5.0))
     mavlink = get_mavlink_module(master)
     target_system = master.target_system
     target_component = master.target_component
     current_mission_count = wait_for_mission_protocol_ready(master, timeout_s=30.0)
     upload_attempts = 3
+    print(
+        "[run_trial] uploading mission: "
+        f"frame={mission_frame}, waypoint_count={len(mission_waypoints)}"
+    )
 
     for attempt_idx in range(upload_attempts):
         master.mav.mission_clear_all_send(target_system, target_component)
@@ -1707,6 +1850,7 @@ def upload_mission(master: Any, context: TrialContext, mission_waypoints: list[M
                 target_component,
                 waypoint,
                 success_radius_m,
+                mission_frame,
                 home_lat_deg,
                 home_lon_deg,
             )
@@ -1886,13 +2030,15 @@ def update_state_from_message(
     home_lat_deg: float,
     home_lon_deg: float,
     servo_params: dict[str, float],
+    mission_frame: str,
 ) -> None:
     msg_type = msg.get_type()
     if msg_type == "GLOBAL_POSITION_INT":
         state.sim_time_s = float(msg.time_boot_ms) / 1000.0
         state.lat_deg = float(msg.lat) / 1e7
         state.lon_deg = float(msg.lon) / 1e7
-        state.x_m, state.y_m = geodetic_to_enu(home_lat_deg, home_lon_deg, state.lat_deg, state.lon_deg)
+        east_m, north_m = geodetic_to_enu(home_lat_deg, home_lon_deg, state.lat_deg, state.lon_deg)
+        state.x_m, state.y_m = enu_to_mission_xy(mission_frame, east_m, north_m)
         if getattr(msg, "hdg", 65535) != 65535:
             state.heading_deg = float(msg.hdg) / 100.0
             state.yaw_rad = math.radians(state.heading_deg)
@@ -2119,6 +2265,7 @@ def poll_samples(
     ros_collector: RosTelemetryCollector | None = None,
 ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
     mission_waypoints = build_mission_waypoints(context)
+    mission_frame = selected_mission_frame(context)
     home_lat_deg = float(context.study_cfg["home_llh"][0])
     home_lon_deg = float(context.study_cfg["home_llh"][1])
     servo_params = read_param_map(context.files.param_file)
@@ -2167,7 +2314,7 @@ def poll_samples(
     while True:
         msg = master.recv_match(blocking=True, timeout=0.2)
         if msg is not None:
-            update_state_from_message(state, msg, home_lat_deg, home_lon_deg, servo_params)
+            update_state_from_message(state, msg, home_lat_deg, home_lon_deg, servo_params, mission_frame)
 
         if state.sim_time_s is None:
             continue
@@ -2503,6 +2650,27 @@ def poll_samples(
 
         next_sample_s += sample_period_s
 
+    final_realtime_factor = 0.0
+    min_realtime_factor = 0.0
+    if samples:
+        final_elapsed_sim_s = max(0.0, float(samples[-1].get("elapsed_sim_s", 0.0)))
+        final_elapsed_wall_s = max(0.0, float(samples[-1].get("elapsed_wall_s", 0.0)))
+        if final_elapsed_wall_s > 0.0:
+            final_realtime_factor = final_elapsed_sim_s / final_elapsed_wall_s
+
+        valid_realtime_factors = [
+            float(sample.get("realtime_factor", 0.0))
+            for sample in samples
+            if float(sample.get("elapsed_sim_s", 0.0)) >= sample_period_s
+            and float(sample.get("elapsed_wall_s", 0.0)) >= 0.5
+            and float(sample.get("realtime_factor", 0.0)) > 0.0
+        ]
+        min_realtime_factor = (
+            min(valid_realtime_factors)
+            if valid_realtime_factors
+            else final_realtime_factor
+        )
+
     return samples, {
         "status": status,
         "failure_reason": failure_reason,
@@ -2516,17 +2684,9 @@ def poll_samples(
         "roll_violation_total_s": roll_violation_total_s,
         "roll_violation_peak_continuous_s": roll_violation_peak_continuous_s,
         "max_abs_roll_deg_after_grace": max_abs_roll_deg_after_grace,
-        "final_realtime_factor": float(samples[-1]["realtime_factor"]) if samples else 0.0,
-        "mean_realtime_factor": (
-            sum(float(sample.get("realtime_factor", 0.0)) for sample in samples) / len(samples)
-            if samples
-            else 0.0
-        ),
-        "min_realtime_factor": (
-            min(float(sample.get("realtime_factor", 0.0)) for sample in samples)
-            if samples
-            else 0.0
-        ),
+        "final_realtime_factor": final_realtime_factor,
+        "mean_realtime_factor": final_realtime_factor,
+        "min_realtime_factor": min_realtime_factor,
     }
 
 
@@ -2544,11 +2704,13 @@ def run_live_trial(
     post_trial_cooldown_s = float(context.study_cfg.get("post_trial_cooldown_s", 5.0))
     try:
         print(f"[run_trial] launching trial {context.trial_id}")
+        print(f"[run_trial] mission frame: {selected_mission_frame(context)}")
         print(f"[run_trial] position source: {selected_position_source(context)}")
         print(f"[run_trial] roll source: {selected_roll_source(context)}")
         print(f"[run_trial] launch stdout: {context.files.logs_dir / 'launch.stdout.log'}")
         print(f"[run_trial] launch stderr: {context.files.logs_dir / 'launch.stderr.log'}")
         process = start_launch_process(context, launch_plan)
+        publish_sail_force_enabled(context, execution, False, reason="startup_prearm")
         if ros_roll_collection_required(context):
             use_odom, use_imu = ros_roll_topic_requirements(context)
             ros_collector = RosTelemetryCollector(
@@ -2568,6 +2730,10 @@ def run_live_trial(
         mission_waypoints = build_mission_waypoints(context)
         upload_mission(master, context, mission_waypoints)
         arm_and_set_auto(master, context)
+        publish_sail_force_enabled(context, execution, True, reason="armed_auto")
+        enable_settle_s = float(context.study_cfg.get("sail_force_enable_settle_s", 0.5))
+        if enable_settle_s > 0.0:
+            time.sleep(enable_settle_s)
         return poll_samples(master, context, ros_collector)
     finally:
         if ros_collector is not None:
@@ -2644,6 +2810,7 @@ def build_metadata(
         "wind_y_mps": wind_xyz[1],
         "wind_z_mps": wind_xyz[2],
         "mission_waypoint_count": len(waypoints),
+        "mission_frame": selected_mission_frame(context),
         "position_source": selected_position_source(context),
         "roll_source": selected_roll_source(context),
     }

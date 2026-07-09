@@ -466,6 +466,11 @@
       name="ioes::sim::SailLiftDragSystem">
       <sail_link>sail_link</sail_link>
       <wind_topic>/world/waves/wind</wind_topic>
+      <enable_topic>/model/sailboat/sail_lift_drag/enable</enable_topic>
+      <enabled>false</enabled>
+      <enable_ramp_time_s>10.0</enable_ramp_time_s>
+      <force_scale>0.35</force_scale>
+      <max_force_n>120.0</max_force_n>
       <fluid_density>1.2</fluid_density>
       <area>10.976</area>
       <a0>0.0</a0>
@@ -599,4 +604,3 @@
 
   </model>
 </sdf>
-

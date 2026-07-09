@@ -33,6 +33,7 @@ BASE_SUMMARY_COLUMNS = [
     "wind_y_mps",
     "wind_z_mps",
     "mission_waypoint_count",
+    "mission_frame",
     "position_source",
     "roll_source",
 ]
@@ -162,6 +163,11 @@ def compute_metrics(
     progress = [clip(_safe_float(sample.get("progress_ratio")), 0.0, 1.0) for sample in samples]
     waypoint_indices = [int(_safe_float(sample.get("waypoint_index"), 0.0)) for sample in samples]
     realtime_factors = [_safe_float(sample.get("realtime_factor")) for sample in samples]
+    sample_mean_realtime_factor = (
+        sum(realtime_factors) / len(realtime_factors) if realtime_factors else 0.0
+    )
+    sample_final_realtime_factor = realtime_factors[-1] if realtime_factors else 0.0
+    sample_min_realtime_factor = min(realtime_factors) if realtime_factors else 0.0
 
     metrics = {
         "mission_time_s": max(0.0, times[-1] - times[0]),
@@ -193,11 +199,18 @@ def compute_metrics(
             online_stats.get("max_abs_roll_deg_after_grace"),
             max(rolls) if rolls else 0.0,
         ),
-        "mean_realtime_factor": (
-            sum(realtime_factors) / len(realtime_factors) if realtime_factors else 0.0
+        "mean_realtime_factor": _safe_float(
+            online_stats.get("mean_realtime_factor"),
+            sample_mean_realtime_factor,
         ),
-        "final_realtime_factor": realtime_factors[-1] if realtime_factors else 0.0,
-        "min_realtime_factor": min(realtime_factors) if realtime_factors else 0.0,
+        "final_realtime_factor": _safe_float(
+            online_stats.get("final_realtime_factor"),
+            sample_final_realtime_factor,
+        ),
+        "min_realtime_factor": _safe_float(
+            online_stats.get("min_realtime_factor"),
+            sample_min_realtime_factor,
+        ),
     }
     return metrics
 

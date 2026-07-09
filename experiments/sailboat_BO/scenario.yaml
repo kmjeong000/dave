@@ -25,6 +25,11 @@ study:
   headless: true
   paused: false
   verbose: 0
+  sail_force_gate_during_startup: true
+  sail_force_enable_topic: /model/sailboat/sail_lift_drag/enable
+  sail_force_disable_repeats: 8
+  sail_force_enable_repeats: 3
+  sail_force_enable_settle_s: 0.5
   execution_backend: local
   docker_container: rover-debug-shell
   container_repo_root: /home/docker/sailboat_ws/src/dave
@@ -122,7 +127,7 @@ scenarios:
       z_m: 0.2
       yaw_deg: 0.0
     mission:
-      frame: local_enu_m
+      frame: gazebo_xy_m
       waypoints: [[60, 0], [-60, 0]]
 
   - id: train_upwind_tack
@@ -141,7 +146,7 @@ scenarios:
       z_m: 0.2
       yaw_deg: 90.0
     mission:
-      frame: local_enu_m
+      frame: gazebo_xy_m
       waypoints: [[0, 60], [0, -60]]
 
   - id: train_dogleg
@@ -160,7 +165,7 @@ scenarios:
       z_m: 0.2
       yaw_deg: 26.565
     mission:
-      frame: local_enu_m
+      frame: gazebo_xy_m
       waypoints: [[40, 20], [80, -20], [120, 0]]
 
   - id: eval_long_oblique
@@ -179,5 +184,5 @@ scenarios:
       z_m: 0.2
       yaw_deg: 59.036
     mission:
-      frame: local_enu_m
+      frame: gazebo_xy_m
       waypoints: [[30, 50], [60, 100], [90, 140]]
