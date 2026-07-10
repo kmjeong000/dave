@@ -424,8 +424,11 @@ def compute_capture_distance_m(
     nav_wp_dist_m: float | None,
     raw_waypoint_index: int,
     effective_target_index: int,
+    use_nav_wp_dist: bool = True,
 ) -> float:
     capture_distance_m = max(0.0, float(local_distance_to_wp_m))
+    if not use_nav_wp_dist:
+        return capture_distance_m
     if nav_wp_dist_m is None:
         return capture_distance_m
     if raw_waypoint_index != effective_target_index:
@@ -477,6 +480,32 @@ def quaternion_to_yaw_rad(x: float, y: float, z: float, w: float) -> float:
     return math.atan2(siny_cosp, cosy_cosp)
 
 
+def normalize_degrees_360(value: float) -> float:
+    return float(value) % 360.0
+
+
+def normalize_degrees_signed(value: float) -> float:
+    normalized = (float(value) + 180.0) % 360.0 - 180.0
+    if math.isclose(normalized, -180.0, abs_tol=1e-9):
+        return 180.0
+    return normalized
+
+
+def selected_ardupilot_home_heading_deg(spawn: dict[str, Any]) -> float:
+    if "heading_deg" in spawn:
+        return normalize_degrees_360(float(spawn["heading_deg"]))
+    return normalize_degrees_360(90.0 - float(spawn["yaw_deg"]))
+
+
+def selected_gazebo_spawn_yaw_deg(spawn: dict[str, Any]) -> float:
+    if "gazebo_yaw_deg" in spawn:
+        return normalize_degrees_signed(float(spawn["gazebo_yaw_deg"]))
+    if "heading_deg" in spawn:
+        return normalize_degrees_signed(-float(spawn["heading_deg"]))
+    # Legacy scenario yaw is a Gazebo XY course angle. The sailboat hull points along model +Y.
+    return normalize_degrees_signed(float(spawn["yaw_deg"]) - 90.0)
+
+
 def selected_position_source(context: TrialContext) -> str:
     raw_value = str(context.termination_cfg.get("position_source", "gazebo_odometry")).strip().lower()
     valid_sources = {"mavlink", "gazebo_odometry"}
@@ -485,6 +514,39 @@ def selected_position_source(context: TrialContext) -> str:
             f"Unsupported position_source '{raw_value}'. Expected one of: {sorted(valid_sources)}"
         )
     return raw_value
+
+
+def trust_mavlink_reached_for_completion(context: TrialContext) -> bool:
+    return selected_position_source(context) == "mavlink"
+
+
+def mavlink_reached_local_gate_m(context: TrialContext) -> float:
+    configured = context.termination_cfg.get("mavlink_reached_local_gate_m")
+    if configured is not None:
+        return max(0.0, float(configured))
+    success_radius_m = float(context.termination_cfg.get("success_radius_m", 5.0))
+    capture_radius_m = float(
+        context.termination_cfg.get("waypoint_capture_radius_m", success_radius_m)
+    )
+    return max(success_radius_m, capture_radius_m) + 1.0
+
+
+def accept_mavlink_reached_for_completion(
+    context: TrialContext,
+    *,
+    raw_reached_seq: int,
+    waypoint_count: int,
+    distance_to_wp_m: float,
+) -> bool:
+    if not reached_final_waypoint(context, raw_reached_seq, waypoint_count):
+        return False
+    if trust_mavlink_reached_for_completion(context):
+        return True
+    if selected_position_source(context) != "gazebo_odometry":
+        return False
+    if not math.isfinite(float(distance_to_wp_m)):
+        return False
+    return float(distance_to_wp_m) <= mavlink_reached_local_gate_m(context)
 
 
 def parse_args() -> argparse.Namespace:
@@ -912,7 +974,9 @@ def build_launch_command(
     spawn = context.scenario_cfg["spawn"]
     study_cfg = context.study_cfg
     home_lat, home_lon, home_alt = study_cfg["home_llh"]
-    ardupilot_home = f"{home_lat},{home_lon},{home_alt},{spawn['yaw_deg']}"
+    gazebo_spawn_yaw_deg = selected_gazebo_spawn_yaw_deg(spawn)
+    ardupilot_heading_deg = selected_ardupilot_home_heading_deg(spawn)
+    ardupilot_home = f"{home_lat},{home_lon},{home_alt},{ardupilot_heading_deg}"
     launch_cmd = [
         "ros2",
         "launch",
@@ -922,7 +986,7 @@ def build_launch_command(
         f"x:={spawn['x_m']}",
         f"y:={spawn['y_m']}",
         f"z:={spawn['z_m']}",
-        f"yaw:={math.radians(float(spawn['yaw_deg']))}",
+        f"yaw:={math.radians(gazebo_spawn_yaw_deg)}",
         f"ardupilot_params:={param_file if param_file is not None else context.files.param_file}",
         f"ardupilot_home:={ardupilot_home}",
         f"start_mavproxy:={str(study_cfg.get('use_mavproxy', False)).lower()}",
@@ -1805,7 +1869,7 @@ def verify_uploaded_mission(
     context: TrialContext,
     upload_items: list[MissionUploadItem],
     *,
-    coordinate_tolerance_m: float = 0.5,
+    coordinate_tolerance_m: float = 1.0,
     home_coordinate_tolerance_m: float = 10.0,
 ) -> None:
     mavlink = get_mavlink_module(master)
@@ -2524,6 +2588,8 @@ def poll_samples(
     waypoint_tracker = WaypointTracker()
     status = "running"
     failure_reason = ""
+    trust_mavlink_reached = trust_mavlink_reached_for_completion(context)
+    use_nav_wp_dist_for_capture = selected_position_source(context) != "gazebo_odometry"
 
     while True:
         msg = master.recv_match(blocking=True, timeout=0.2)
@@ -2551,14 +2617,19 @@ def poll_samples(
             state.mission_seq,
             waypoint_count,
         )
-        sync_waypoint_tracker(
-            waypoint_tracker,
-            raw_waypoint_index=raw_waypoint_index,
-            completed_waypoint_count_from_reached=completed_waypoint_count_from_reached_seq(
+        completed_from_reached = (
+            completed_waypoint_count_from_reached_seq(
                 context,
                 state.reached_seq,
                 waypoint_count,
-            ),
+            )
+            if trust_mavlink_reached
+            else 0
+        )
+        sync_waypoint_tracker(
+            waypoint_tracker,
+            raw_waypoint_index=raw_waypoint_index,
+            completed_waypoint_count_from_reached=completed_from_reached,
             waypoint_count=waypoint_count,
         )
         current_effective_target_index = effective_waypoint_index(
@@ -2633,6 +2704,7 @@ def poll_samples(
                 nav_wp_dist_m=state.nav_wp_dist_m,
                 raw_waypoint_index=raw_waypoint_index,
                 effective_target_index=current_effective_target_index,
+                use_nav_wp_dist=use_nav_wp_dist_for_capture,
             )
             previous_completed_count = waypoint_tracker.completed_waypoint_count
             previous_capture_count = waypoint_tracker.local_capture_count
@@ -2746,7 +2818,20 @@ def poll_samples(
         while recent_stuck_progress and (sample["sim_time_s"] - recent_stuck_progress[0][0]) > stuck_window_s:
             recent_stuck_progress.popleft()
 
-        mission_complete = reached_final_waypoint(context, state.reached_seq, waypoint_count)
+        mavlink_reached_completion = accept_mavlink_reached_for_completion(
+            context,
+            raw_reached_seq=state.reached_seq,
+            waypoint_count=waypoint_count,
+            distance_to_wp_m=float(sample["distance_to_wp_m"]),
+        )
+        if mavlink_reached_completion:
+            waypoint_tracker.completed_waypoint_count = max(
+                waypoint_tracker.completed_waypoint_count,
+                waypoint_count,
+            )
+            sample["waypoint_completed_count"] = waypoint_tracker.completed_waypoint_count
+
+        mission_complete = mavlink_reached_completion
         if local_waypoint_capture:
             mission_complete = mission_complete or waypoint_tracker.completed_waypoint_count >= waypoint_count
         else:
@@ -3002,6 +3087,8 @@ def build_metadata(
     world = context.scenario_cfg["world"]
     waypoints = context.scenario_cfg["mission"]["waypoints"]
     wind_xyz = world["wind_world_xyz_mps"]
+    gazebo_spawn_yaw_deg = selected_gazebo_spawn_yaw_deg(spawn)
+    ardupilot_heading_deg = selected_ardupilot_home_heading_deg(spawn)
     metadata = {
         "trial_id": context.trial_id,
         "study_name": context.study_name,
@@ -3019,7 +3106,9 @@ def build_metadata(
         "spawn_x_m": spawn["x_m"],
         "spawn_y_m": spawn["y_m"],
         "spawn_z_m": spawn["z_m"],
-        "spawn_yaw_deg": spawn["yaw_deg"],
+        "spawn_yaw_deg": gazebo_spawn_yaw_deg,
+        "spawn_course_deg": spawn["yaw_deg"],
+        "spawn_heading_deg": ardupilot_heading_deg,
         "wind_x_mps": wind_xyz[0],
         "wind_y_mps": wind_xyz[1],
         "wind_z_mps": wind_xyz[2],

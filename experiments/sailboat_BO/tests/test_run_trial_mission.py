@@ -159,6 +159,93 @@ class MissionUploadTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "count mismatch"):
             run_trial.verify_uploaded_mission(master, context, upload_items)
 
+    def test_verification_allows_sub_meter_waypoint_readback_error(self):
+        context = make_context()
+        upload_items = run_trial.build_mission_upload_items(
+            [run_trial.MissionWaypoint(seq=0, x_m=10.0, y_m=0.0)]
+        )
+        home_lat, home_lon, _ = context.study_cfg["home_llh"]
+        waypoint_lat, waypoint_lon = run_trial.mission_xy_to_geodetic(
+            "gazebo_xy_m", home_lat, home_lon, 10.0, 0.0
+        )
+        adjusted_waypoint_lat = waypoint_lat + math.degrees(0.8 / run_trial.EARTH_RADIUS_M)
+        master = FakeMaster(
+            [
+                FakeMessage("MISSION_COUNT", count=2),
+                downloaded_item(0, home_lat, home_lon),
+                downloaded_item(1, adjusted_waypoint_lat, waypoint_lon),
+            ]
+        )
+
+        run_trial.verify_uploaded_mission(master, context, upload_items)
+
+    def test_launch_command_converts_course_angle_for_y_forward_hull(self):
+        context = SimpleNamespace(
+            launch_file="/tmp/launch.py",
+            study_cfg={
+                "home_llh": [44.0, -124.0, 0.0],
+                "namespace": "sailboat",
+            },
+            scenario_cfg={
+                "spawn": {
+                    "x_m": 0.0,
+                    "y_m": 0.0,
+                    "z_m": 0.2,
+                    "yaw_deg": 26.565,
+                },
+            },
+            files=SimpleNamespace(param_file="/tmp/trial.parm"),
+        )
+
+        launch_cmd = run_trial.build_launch_command(context, "dogleg_world")
+
+        yaw_arg = next(item for item in launch_cmd if item.startswith("yaw:="))
+        home_arg = next(item for item in launch_cmd if item.startswith("ardupilot_home:="))
+        self.assertAlmostEqual(
+            float(yaw_arg.split(":=", 1)[1]),
+            math.radians(-63.435),
+            places=6,
+        )
+        self.assertEqual(home_arg, "ardupilot_home:=44.0,-124.0,0.0,63.435")
+
+    def test_gazebo_odometry_does_not_trust_mavlink_reached_for_completion(self):
+        context = make_context()
+        self.assertFalse(run_trial.trust_mavlink_reached_for_completion(context))
+
+        mavlink_context = make_context()
+        mavlink_context.termination_cfg["position_source"] = "mavlink"
+        self.assertTrue(run_trial.trust_mavlink_reached_for_completion(mavlink_context))
+
+    def test_gazebo_capture_uses_local_distance_without_nav_wp_gate(self):
+        capture_distance = run_trial.compute_capture_distance_m(
+            local_distance_to_wp_m=1.8,
+            nav_wp_dist_m=9.0,
+            raw_waypoint_index=1,
+            effective_target_index=1,
+            use_nav_wp_dist=False,
+        )
+
+        self.assertEqual(capture_distance, 1.8)
+
+    def test_gazebo_reached_completion_requires_local_distance_gate(self):
+        context = make_context()
+        self.assertTrue(
+            run_trial.accept_mavlink_reached_for_completion(
+                context,
+                raw_reached_seq=2,
+                waypoint_count=2,
+                distance_to_wp_m=5.65,
+            )
+        )
+        self.assertFalse(
+            run_trial.accept_mavlink_reached_for_completion(
+                context,
+                raw_reached_seq=2,
+                waypoint_count=2,
+                distance_to_wp_m=55.0,
+            )
+        )
+
     def test_advance_uses_only_home_offset_raw_sequence(self):
         context = make_context()
         state = run_trial.TelemetryState(mission_seq=1)
