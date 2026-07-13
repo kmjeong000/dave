@@ -170,6 +170,9 @@ scenarios:
 
   - id: eval_long_oblique
     split: eval
+    termination:
+      stuck_window_s: 60
+      no_progress_window_s: 60
     world:
       template: waves_wind
       internal_world_name: waves
