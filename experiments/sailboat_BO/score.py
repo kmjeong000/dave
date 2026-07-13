@@ -92,6 +92,7 @@ OBJECTIVE_COLUMNS = [
     "progress_term",
     "control_term",
     "roll_term",
+    "sailing_term",
     "scenario_cost",
 ]
 
@@ -467,6 +468,52 @@ def compute_constraints(
     }
 
 
+def compute_sailing_objective_term(
+    metrics: Mapping[str, float],
+    termination_cfg: Mapping[str, Any],
+) -> float:
+    min_upwind_ratio = _safe_float(
+        termination_cfg.get("sailing_objective_min_upwind_ratio"),
+        0.30,
+    )
+    upwind_sailing_ratio = metrics.get("upwind_sailing_ratio", 0.0)
+    if upwind_sailing_ratio < min_upwind_ratio:
+        return 0.0
+
+    min_upwind_tacks = _safe_float(
+        termination_cfg.get("sailing_objective_min_upwind_tacks"),
+        4.0,
+    )
+    upwind_tack_count = metrics.get("upwind_tack_count", 0.0)
+    tack_shortfall_term = 0.0
+    if min_upwind_tacks > 0.0:
+        tack_shortfall_term = clip(
+            (min_upwind_tacks - upwind_tack_count) / min_upwind_tacks,
+            0.0,
+            1.0,
+        )
+
+    max_upwind_no_go_ratio = clip(
+        _safe_float(
+            termination_cfg.get("sailing_objective_max_upwind_no_go_ratio"),
+            0.15,
+        ),
+        0.0,
+        1.0,
+    )
+    upwind_no_go_ratio = metrics.get("upwind_no_go_violation_ratio", 0.0)
+    no_go_excess_term = 0.0
+    if upwind_no_go_ratio > max_upwind_no_go_ratio:
+        no_go_excess_term = clip(
+            (upwind_no_go_ratio - max_upwind_no_go_ratio)
+            / max(1e-6, 1.0 - max_upwind_no_go_ratio),
+            0.0,
+            1.0,
+        )
+
+    return max(tack_shortfall_term, no_go_excess_term)
+
+
 def compute_objective(
     metrics: Mapping[str, float],
     constraints: Mapping[str, bool],
@@ -496,6 +543,11 @@ def compute_objective(
     )
     roll_excess = max(0.0, roll_reference_deg - 30.0)
     roll_term = clip(roll_excess / 15.0, 0.0, 1.0)
+    sailing_term = compute_sailing_objective_term(metrics, termination_cfg)
+    sailing_weight = max(
+        0.0,
+        _safe_float(termination_cfg.get("sailing_objective_weight"), 0.15),
+    )
 
     scenario_cost = (
         penalty
@@ -504,6 +556,7 @@ def compute_objective(
         + 0.20 * progress_term
         + 0.10 * control_term
         + 0.10 * roll_term
+        + sailing_weight * sailing_term
     )
 
     return {
@@ -513,6 +566,7 @@ def compute_objective(
         "progress_term": progress_term,
         "control_term": control_term,
         "roll_term": roll_term,
+        "sailing_term": sailing_term,
         "scenario_cost": scenario_cost,
     }
 

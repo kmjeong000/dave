@@ -134,6 +134,75 @@ class SailingBehaviorMetricTests(unittest.TestCase):
         self.assertIn("upwind_tack_count", metrics)
         self.assertEqual(metrics["upwind_tack_count"], 1.0)
 
+    def test_sailing_objective_does_not_penalize_stable_upwind_tacking(self):
+        metrics = {
+            "upwind_sailing_ratio": 0.72,
+            "upwind_tack_count": 6.0,
+            "upwind_no_go_violation_ratio": 0.12,
+        }
+
+        sailing_term = score.compute_sailing_objective_term(metrics, {})
+
+        self.assertAlmostEqual(sailing_term, 0.0)
+
+    def test_sailing_objective_penalizes_missing_upwind_tacks(self):
+        metrics = {
+            "upwind_sailing_ratio": 0.72,
+            "upwind_tack_count": 2.0,
+            "upwind_no_go_violation_ratio": 0.10,
+        }
+
+        sailing_term = score.compute_sailing_objective_term(metrics, {})
+
+        self.assertAlmostEqual(sailing_term, 0.5)
+
+    def test_sailing_objective_penalizes_excessive_upwind_no_go_time(self):
+        metrics = {
+            "upwind_sailing_ratio": 0.72,
+            "upwind_tack_count": 6.0,
+            "upwind_no_go_violation_ratio": 0.575,
+        }
+
+        sailing_term = score.compute_sailing_objective_term(metrics, {})
+
+        self.assertAlmostEqual(sailing_term, 0.5)
+
+    def test_sailing_objective_ignores_non_upwind_scenarios(self):
+        metrics = {
+            "upwind_sailing_ratio": 0.0,
+            "upwind_tack_count": 0.0,
+            "upwind_no_go_violation_ratio": 0.0,
+        }
+
+        sailing_term = score.compute_sailing_objective_term(metrics, {})
+
+        self.assertAlmostEqual(sailing_term, 0.0)
+
+    def test_compute_objective_includes_sailing_term(self):
+        metrics = {
+            "mission_time_s": 0.0,
+            "xte_rms_m": 0.0,
+            "progress_ratio": 1.0,
+            "rudder_total_variation_rad": 0.0,
+            "sail_total_variation_rad": 0.0,
+            "max_abs_roll_deg_after_grace": 0.0,
+            "upwind_sailing_ratio": 0.72,
+            "upwind_tack_count": 0.0,
+            "upwind_no_go_violation_ratio": 0.0,
+        }
+        constraints = {
+            "constraint_mission_complete": True,
+            "constraint_timeout": False,
+            "constraint_stuck": False,
+            "constraint_no_progress": False,
+            "constraint_excessive_roll": False,
+        }
+
+        objective = score.compute_objective(metrics, constraints, {"timeout_s": 100.0})
+
+        self.assertAlmostEqual(objective["sailing_term"], 1.0)
+        self.assertAlmostEqual(objective["scenario_cost"], 0.15)
+
 
 if __name__ == "__main__":
     unittest.main()
