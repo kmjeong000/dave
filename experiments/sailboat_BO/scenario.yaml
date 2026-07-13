@@ -107,6 +107,9 @@ logging:
     - progress_along_path_m
     - wind_speed_mps
     - wind_direction_rad
+    - wind_from_direction_rad
+    - target_bearing_rad
+    - target_wind_angle_deg
 
 scenarios:
   - id: train_crosswind_straight

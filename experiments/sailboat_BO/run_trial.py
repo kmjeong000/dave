@@ -480,6 +480,10 @@ def quaternion_to_yaw_rad(x: float, y: float, z: float, w: float) -> float:
     return math.atan2(siny_cosp, cosy_cosp)
 
 
+def wrap_pi(angle_rad: float) -> float:
+    return (angle_rad + math.pi) % (2.0 * math.pi) - math.pi
+
+
 def normalize_degrees_360(value: float) -> float:
     return float(value) % 360.0
 
@@ -2480,6 +2484,16 @@ def build_sample_row(
         pose_y_m,
     )
     wind_xyz = context.scenario_cfg["world"]["wind_world_xyz_mps"]
+    wind_direction_rad = (
+        math.atan2(float(wind_xyz[0]), float(wind_xyz[1]))
+        if wind_xyz[0] or wind_xyz[1]
+        else 0.0
+    )
+    wind_from_direction_rad = wrap_pi(wind_direction_rad + math.pi)
+    target_bearing_rad = math.atan2(target_wp.x_m - pose_x_m, target_wp.y_m - pose_y_m)
+    target_wind_angle_deg = math.degrees(
+        abs(wrap_pi(target_bearing_rad - wind_from_direction_rad))
+    )
     roll_mav_deg = state.roll_deg
     roll_gz_odom_deg = ros_snapshot.odom_roll_deg if ros_snapshot is not None else None
     roll_gz_imu_deg = ros_snapshot.imu_roll_deg if ros_snapshot is not None else None
@@ -2533,7 +2547,10 @@ def build_sample_row(
         "nav_wp_dist_m": state.nav_wp_dist_m if state.nav_wp_dist_m is not None else 0.0,
         "nav_xtrack_error_m": state.nav_xtrack_error_m if state.nav_xtrack_error_m is not None else 0.0,
         "wind_speed_mps": math.sqrt(sum(float(v) * float(v) for v in wind_xyz)),
-        "wind_direction_rad": math.atan2(float(wind_xyz[0]), float(wind_xyz[1])) if wind_xyz[0] or wind_xyz[1] else 0.0,
+        "wind_direction_rad": wind_direction_rad,
+        "wind_from_direction_rad": wind_from_direction_rad,
+        "target_bearing_rad": target_bearing_rad,
+        "target_wind_angle_deg": target_wind_angle_deg,
     }
 
 
@@ -3211,7 +3228,19 @@ def main() -> int:
     duration_wall_s = time.monotonic() - start_monotonic
     write_samples_csv(context.files.samples_csv, context.logging_cfg.get("csv_fields", []), samples)
 
-    metrics = compute_metrics(samples, online_stats=outcome)
+    metrics = compute_metrics(
+        samples,
+        online_stats=outcome,
+        sailing_cfg={
+            "no_go_angle_deg": context.params.get("SAIL_NO_GO_ANGLE", 60.0),
+            "no_go_grace_s": 3.0,
+            "tack_min_hold_s": 3.0,
+            "min_course_speed_mps": max(
+                0.05,
+                0.5 * float(context.termination_cfg.get("min_speed_mps", 0.25)),
+            ),
+        },
+    )
     constraints = compute_constraints(metrics, context.termination_cfg, outcome)
     objective = compute_objective(metrics, constraints, context.termination_cfg)
     metadata = build_metadata(context, finished_at_utc, duration_wall_s, outcome)

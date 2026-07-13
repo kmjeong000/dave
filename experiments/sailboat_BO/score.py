@@ -56,6 +56,17 @@ METRIC_COLUMNS = [
     "rudder_rms_rad",
     "sail_rms_rad",
     "waypoint_switch_count",
+    "moving_course_time_s",
+    "tack_count",
+    "upwind_sailing_time_s",
+    "upwind_sailing_ratio",
+    "upwind_tack_count",
+    "no_go_violation_time_s",
+    "no_go_violation_ratio",
+    "upwind_no_go_violation_time_s",
+    "upwind_no_go_violation_ratio",
+    "mean_abs_wind_angle_deg",
+    "min_abs_wind_angle_deg",
     "stuck_time_s",
     "roll_source_valid_ratio",
     "roll_violation_total_s",
@@ -125,9 +136,214 @@ def _trapezoid_integral(values: list[float], times: list[float]) -> float:
     return integral
 
 
+def _wrap_pi(angle_rad: float) -> float:
+    return (angle_rad + math.pi) % (2.0 * math.pi) - math.pi
+
+
+def _excess_duration_after_grace(previous_duration_s: float, current_duration_s: float, grace_s: float) -> float:
+    return max(0.0, current_duration_s - grace_s) - max(0.0, previous_duration_s - grace_s)
+
+
+def _update_confirmed_tack_side(
+    *,
+    side: int,
+    dt_s: float,
+    confirmed_side: int,
+    pending_side: int,
+    pending_duration_s: float,
+    min_hold_s: float,
+) -> tuple[int, int, float, int]:
+    if side == 0:
+        return confirmed_side, 0, 0.0, 0
+    if confirmed_side == 0:
+        return side, 0, 0.0, 0
+    if side == confirmed_side:
+        return confirmed_side, 0, 0.0, 0
+
+    if side == pending_side:
+        pending_duration_s += dt_s
+    else:
+        pending_side = side
+        pending_duration_s = dt_s
+
+    if pending_duration_s >= min_hold_s:
+        return side, 0, 0.0, 1
+    return confirmed_side, pending_side, pending_duration_s, 0
+
+
+def compute_sailing_behavior_metrics(
+    samples: list[Mapping[str, Any]],
+    sailing_cfg: Mapping[str, Any] | None = None,
+) -> dict[str, float]:
+    sailing_cfg = dict(sailing_cfg or {})
+    no_go_angle_deg = _safe_float(sailing_cfg.get("no_go_angle_deg"), 60.0)
+    no_go_angle_rad = math.radians(max(0.0, no_go_angle_deg))
+    side_deadband_rad = math.radians(
+        max(1.0, _safe_float(sailing_cfg.get("tack_side_deadband_deg"), 10.0))
+    )
+    min_course_speed_mps = max(
+        0.0,
+        _safe_float(sailing_cfg.get("min_course_speed_mps"), 0.2),
+    )
+    min_course_delta_m = max(
+        0.0,
+        _safe_float(sailing_cfg.get("min_course_delta_m"), 0.05),
+    )
+    tack_min_hold_s = max(
+        0.0,
+        _safe_float(sailing_cfg.get("tack_min_hold_s"), 3.0),
+    )
+    no_go_grace_s = max(
+        0.0,
+        _safe_float(sailing_cfg.get("no_go_grace_s"), 3.0),
+    )
+
+    moving_time_s = 0.0
+    no_go_violation_time_s = 0.0
+    upwind_sailing_time_s = 0.0
+    upwind_no_go_violation_time_s = 0.0
+    weighted_abs_wind_angle_deg = 0.0
+    min_abs_wind_angle_deg: float | None = None
+    tack_count = 0
+    upwind_tack_count = 0
+    confirmed_tack_side = 0
+    pending_tack_side = 0
+    pending_tack_duration_s = 0.0
+    confirmed_upwind_tack_side = 0
+    pending_upwind_tack_side = 0
+    pending_upwind_tack_duration_s = 0.0
+    no_go_streak_s = 0.0
+    upwind_no_go_streak_s = 0.0
+
+    for previous, current in zip(samples[:-1], samples[1:]):
+        previous_time_s = _safe_float(previous.get("sim_time_s"))
+        current_time_s = _safe_float(current.get("sim_time_s"))
+        dt_s = current_time_s - previous_time_s
+        if dt_s <= 0.0:
+            continue
+
+        dx_m = _safe_float(current.get("x_m")) - _safe_float(previous.get("x_m"))
+        dy_m = _safe_float(current.get("y_m")) - _safe_float(previous.get("y_m"))
+        course_delta_m = math.hypot(dx_m, dy_m)
+        course_speed_mps = course_delta_m / dt_s
+        if course_delta_m < min_course_delta_m or course_speed_mps < min_course_speed_mps:
+            continue
+
+        wind_to_rad = _safe_float(current.get("wind_direction_rad"))
+        wind_from_rad = _wrap_pi(wind_to_rad + math.pi)
+        course_rad = math.atan2(dx_m, dy_m)
+        signed_wind_angle_rad = _wrap_pi(course_rad - wind_from_rad)
+        abs_wind_angle_rad = abs(signed_wind_angle_rad)
+        abs_wind_angle_deg = math.degrees(abs_wind_angle_rad)
+        in_no_go = abs_wind_angle_rad < no_go_angle_rad
+
+        target_bearing_rad = current.get("target_bearing_rad")
+        target_is_upwind = False
+        if target_bearing_rad is not None:
+            target_wind_angle_rad = abs(
+                _wrap_pi(_safe_float(target_bearing_rad) - wind_from_rad)
+            )
+            target_is_upwind = target_wind_angle_rad < no_go_angle_rad
+
+        moving_time_s += dt_s
+        weighted_abs_wind_angle_deg += abs_wind_angle_deg * dt_s
+        min_abs_wind_angle_deg = (
+            abs_wind_angle_deg
+            if min_abs_wind_angle_deg is None
+            else min(min_abs_wind_angle_deg, abs_wind_angle_deg)
+        )
+        if in_no_go:
+            previous_no_go_streak_s = no_go_streak_s
+            no_go_streak_s += dt_s
+            no_go_violation_time_s += _excess_duration_after_grace(
+                previous_no_go_streak_s,
+                no_go_streak_s,
+                no_go_grace_s,
+            )
+        else:
+            no_go_streak_s = 0.0
+
+        tack_side = 0
+        if abs(signed_wind_angle_rad) >= side_deadband_rad:
+            tack_side = 1 if signed_wind_angle_rad > 0.0 else -1
+        (
+            confirmed_tack_side,
+            pending_tack_side,
+            pending_tack_duration_s,
+            tack_increment,
+        ) = _update_confirmed_tack_side(
+            side=tack_side,
+            dt_s=dt_s,
+            confirmed_side=confirmed_tack_side,
+            pending_side=pending_tack_side,
+            pending_duration_s=pending_tack_duration_s,
+            min_hold_s=tack_min_hold_s,
+        )
+        tack_count += tack_increment
+
+        if target_is_upwind:
+            upwind_sailing_time_s += dt_s
+            if in_no_go:
+                previous_upwind_no_go_streak_s = upwind_no_go_streak_s
+                upwind_no_go_streak_s += dt_s
+                upwind_no_go_violation_time_s += _excess_duration_after_grace(
+                    previous_upwind_no_go_streak_s,
+                    upwind_no_go_streak_s,
+                    no_go_grace_s,
+                )
+            else:
+                upwind_no_go_streak_s = 0.0
+            if tack_side:
+                (
+                    confirmed_upwind_tack_side,
+                    pending_upwind_tack_side,
+                    pending_upwind_tack_duration_s,
+                    upwind_tack_increment,
+                ) = _update_confirmed_tack_side(
+                    side=tack_side,
+                    dt_s=dt_s,
+                    confirmed_side=confirmed_upwind_tack_side,
+                    pending_side=pending_upwind_tack_side,
+                    pending_duration_s=pending_upwind_tack_duration_s,
+                    min_hold_s=tack_min_hold_s,
+                )
+                upwind_tack_count += upwind_tack_increment
+        else:
+            upwind_no_go_streak_s = 0.0
+            pending_upwind_tack_side = 0
+            pending_upwind_tack_duration_s = 0.0
+
+    return {
+        "moving_course_time_s": moving_time_s,
+        "tack_count": float(tack_count),
+        "upwind_sailing_time_s": upwind_sailing_time_s,
+        "upwind_sailing_ratio": (
+            upwind_sailing_time_s / moving_time_s if moving_time_s > 0.0 else 0.0
+        ),
+        "upwind_tack_count": float(upwind_tack_count),
+        "no_go_violation_time_s": no_go_violation_time_s,
+        "no_go_violation_ratio": (
+            no_go_violation_time_s / moving_time_s if moving_time_s > 0.0 else 0.0
+        ),
+        "upwind_no_go_violation_time_s": upwind_no_go_violation_time_s,
+        "upwind_no_go_violation_ratio": (
+            upwind_no_go_violation_time_s / upwind_sailing_time_s
+            if upwind_sailing_time_s > 0.0
+            else 0.0
+        ),
+        "mean_abs_wind_angle_deg": (
+            weighted_abs_wind_angle_deg / moving_time_s if moving_time_s > 0.0 else 0.0
+        ),
+        "min_abs_wind_angle_deg": (
+            min_abs_wind_angle_deg if min_abs_wind_angle_deg is not None else 0.0
+        ),
+    }
+
+
 def compute_metrics(
     samples: list[Mapping[str, Any]],
     online_stats: Mapping[str, Any] | None = None,
+    sailing_cfg: Mapping[str, Any] | None = None,
 ) -> dict[str, float]:
     online_stats = dict(online_stats or {})
     if not samples:
@@ -212,6 +428,7 @@ def compute_metrics(
             sample_min_realtime_factor,
         ),
     }
+    metrics.update(compute_sailing_behavior_metrics(samples, sailing_cfg))
     return metrics
 
 
