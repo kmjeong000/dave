@@ -10,12 +10,12 @@ import sys
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Any, Iterable, Optional
 
 try:
-    from .common import DEFAULT_RESULTS_DIR, DEFAULT_SCENARIO_PATH, load_yaml
+    from .common import DEFAULT_PARAMS_PATH, DEFAULT_RESULTS_DIR, DEFAULT_SCENARIO_PATH, load_yaml
 except ImportError:
-    from common import DEFAULT_RESULTS_DIR, DEFAULT_SCENARIO_PATH, load_yaml
+    from common import DEFAULT_PARAMS_PATH, DEFAULT_RESULTS_DIR, DEFAULT_SCENARIO_PATH, load_yaml
 
 
 DEFAULT_OBJECTIVE_COLUMN = "scenario_cost"
@@ -35,6 +35,7 @@ class Observation:
     iteration: int
     params: dict[str, float]
     objective: float
+    failure_count: int = 0
 
 
 @dataclass(frozen=True)
@@ -43,6 +44,7 @@ class IterationResult:
     params: dict[str, float]
     objective: float
     mean_scenario_cost: float
+    worst_scenario_cost: float
     trial_count: int
     expected_trial_count: int
     failure_count: int
@@ -56,7 +58,39 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--split", choices=["train", "eval", "all"], default="train")
     parser.add_argument("--scenario-ids", nargs="*", help="Optional explicit scenario ids")
     parser.add_argument("--iterations", type=int, default=20, help="Total BO iterations to run")
-    parser.add_argument("--initial-random", type=int, help="Random warmup iterations before GP/EI suggestions")
+    parser.add_argument(
+        "--baseline-params",
+        default=str(DEFAULT_PARAMS_PATH),
+        help="Flat JSON parameter file evaluated as iteration 0 for a new BO run",
+    )
+    parser.add_argument(
+        "--no-baseline",
+        action="store_true",
+        help=(
+            "Start without evaluating or seeding from baseline parameters. "
+            "The first --initial-random iterations are sampled globally before GP/EI."
+        ),
+    )
+    parser.add_argument(
+        "--initial-random",
+        type=int,
+        help=(
+            "Warmup candidates after the baseline, or total global-random warmup "
+            "iterations with --no-baseline, before GP/EI suggestions"
+        ),
+    )
+    parser.add_argument(
+        "--local-warmup",
+        type=int,
+        default=6,
+        help="Number of warmup candidates sampled near the baseline",
+    )
+    parser.add_argument(
+        "--local-radius",
+        type=float,
+        default=0.15,
+        help="Half-width of local sampling as a fraction of each search-space span",
+    )
     parser.add_argument("--candidate-pool", type=int, default=1024, help="Random candidates scored by EI")
     parser.add_argument("--repeats", type=int, default=1, help="Repeats per scenario for each parameter set")
     parser.add_argument("--results-dir", default=str(DEFAULT_RESULTS_DIR), help="Base results directory")
@@ -64,6 +98,15 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--resume", action="store_true", help="Resume from an existing --bo-dir")
     parser.add_argument("--seed", type=int, help="Random seed. Defaults to study.seed in scenario.yaml")
     parser.add_argument("--objective-column", default=DEFAULT_OBJECTIVE_COLUMN)
+    parser.add_argument(
+        "--worst-case-weight",
+        type=float,
+        default=0.0,
+        help=(
+            "Blend the mean trial cost with the worst per-scenario mean cost. "
+            "0 preserves mean-only scoring; 1 uses only the worst scenario."
+        ),
+    )
     parser.add_argument("--execution-backend", choices=["local", "docker-exec"])
     parser.add_argument("--docker-container")
     parser.add_argument("--container-repo-root")
@@ -139,8 +182,126 @@ def sample_random_params(specs: list[ParamSpec], rng: random.Random) -> dict[str
     return decode_vector((rng.random() for _ in specs), specs)
 
 
+def sample_local_params(
+    center_params: dict[str, float],
+    specs: list[ParamSpec],
+    rng: random.Random,
+    *,
+    radius: float,
+) -> dict[str, float]:
+    if not 0.0 < radius <= 1.0:
+        raise ValueError("local radius must be in (0, 1]")
+    center = encode_params(center_params, specs)
+    return decode_vector(
+        (value + rng.uniform(-radius, radius) for value in center),
+        specs,
+    )
+
+
 def params_key(params: dict[str, float], specs: list[ParamSpec]) -> tuple[float, ...]:
     return tuple(round(float(params[spec.name]), 8) for spec in specs)
+
+
+def load_params_for_specs(path: str | Path, specs: list[ParamSpec]) -> dict[str, float]:
+    parsed = json.loads(Path(path).read_text(encoding="utf-8"))
+    if not isinstance(parsed, dict):
+        raise ValueError(f"Expected a JSON mapping at {path}")
+    params: dict[str, float] = {}
+    for spec in specs:
+        if spec.name not in parsed:
+            raise ValueError(f"Baseline parameter file is missing {spec.name}: {path}")
+        value = safe_float(parsed[spec.name])
+        if not math.isfinite(value):
+            raise ValueError(f"Baseline parameter is not numeric: {spec.name}={parsed[spec.name]!r}")
+        if value < spec.low or value > spec.high:
+            raise ValueError(
+                f"Baseline parameter is outside the search space: "
+                f"{spec.name}={value} not in [{spec.low}, {spec.high}]"
+            )
+        if spec.type_name == "int":
+            value = float(round(value))
+        params[spec.name] = value
+    return params
+
+
+def sample_unique_params(
+    sampler: Any,
+    observations: list[Observation],
+    specs: list[ParamSpec],
+) -> dict[str, float]:
+    tried = {params_key(observation.params, specs) for observation in observations}
+    for _ in range(1000):
+        params = sampler()
+        if params_key(params, specs) not in tried:
+            return params
+    raise RuntimeError("Unable to sample an untried parameter set")
+
+
+def propose_iteration_params(
+    *,
+    iteration: int,
+    observations: list[Observation],
+    baseline_params: Optional[dict[str, float]],
+    specs: list[ParamSpec],
+    rng: random.Random,
+    initial_random: int,
+    local_warmup: int,
+    local_radius: float,
+    candidate_pool: int,
+) -> tuple[dict[str, float], str]:
+    if baseline_params is None:
+        if iteration < initial_random:
+            params = sample_unique_params(
+                lambda: sample_random_params(specs, rng),
+                observations,
+                specs,
+            )
+            return params, "global_warmup"
+        return (
+            suggest_params(
+                observations,
+                specs,
+                rng,
+                initial_random=0,
+                candidate_pool=candidate_pool,
+            ),
+            "gp_ei",
+        )
+
+    if iteration == 0 and not observations:
+        return dict(baseline_params), "baseline"
+
+    warmup_index = iteration - 1
+    local_count = min(local_warmup, initial_random)
+    if 0 <= warmup_index < local_count:
+        params = sample_unique_params(
+            lambda: sample_local_params(
+                baseline_params,
+                specs,
+                rng,
+                radius=local_radius,
+            ),
+            observations,
+            specs,
+        )
+        return params, "local_warmup"
+    if 0 <= warmup_index < initial_random:
+        params = sample_unique_params(
+            lambda: sample_random_params(specs, rng),
+            observations,
+            specs,
+        )
+        return params, "global_warmup"
+    return (
+        suggest_params(
+            observations,
+            specs,
+            rng,
+            initial_random=0,
+            candidate_pool=candidate_pool,
+        ),
+        "gp_ei",
+    )
 
 
 def rbf_kernel(a: list[float], b: list[float], *, length_scale: float = 0.35) -> float:
@@ -193,6 +354,17 @@ def expected_improvement(best: float, mean: float, sigma: float) -> float:
     return (best - mean) * normal_cdf(z_score) + sigma * normal_pdf(z_score)
 
 
+def observation_rank(observation: Observation) -> tuple[int, float, int]:
+    """Prefer fewer failures, then a lower objective, then an earlier iteration."""
+    return observation.failure_count, observation.objective, observation.iteration
+
+
+def select_best_observation(observations: list[Observation]) -> Observation:
+    if not observations:
+        raise ValueError("Cannot select a best observation from an empty list")
+    return min(observations, key=observation_rank)
+
+
 def predict_gp(
     observations: list[Observation],
     specs: list[ParamSpec],
@@ -241,8 +413,9 @@ def suggest_params(
                 return params
         return sample_random_params(specs, rng)
 
-    best_value = min(observation.objective for observation in observations)
-    best_params = min(observations, key=lambda observation: observation.objective).params
+    incumbent = select_best_observation(observations)
+    best_value = incumbent.objective
+    best_params = incumbent.params
     best_candidate: dict[str, float] | None = None
     best_ei = -1.0
     for idx in range(max(candidate_pool, 1)):
@@ -282,19 +455,44 @@ def aggregate_objective(
     *,
     objective_column: str,
     expected_trial_count: int,
+    worst_case_weight: float = 0.0,
     missing_trial_penalty: float = MISSING_TRIAL_PENALTY,
-) -> tuple[float, int]:
-    costs = [
-        safe_float(row.get(objective_column), missing_trial_penalty)
-        for row in rows
-    ]
+) -> tuple[float, float, float, int]:
+    if not 0.0 <= worst_case_weight <= 1.0:
+        raise ValueError("worst_case_weight must be in [0, 1]")
+
+    costs: list[float] = []
+    costs_by_scenario: dict[str, list[float]] = {}
+    for index, row in enumerate(rows):
+        cost = safe_float(row.get(objective_column), missing_trial_penalty)
+        costs.append(cost)
+        scenario_id = row.get("scenario_id") or f"__trial_{index}"
+        costs_by_scenario.setdefault(scenario_id, []).append(cost)
+
     failure_count = sum(1 for row in rows if row.get("status") != "success")
     missing = max(0, expected_trial_count - len(rows))
     costs.extend([missing_trial_penalty] * missing)
+    if missing:
+        costs_by_scenario["__missing__"] = [missing_trial_penalty] * missing
     failure_count += missing
     if not costs:
-        return missing_trial_penalty, max(1, expected_trial_count)
-    return sum(costs) / len(costs), failure_count
+        return (
+            missing_trial_penalty,
+            missing_trial_penalty,
+            missing_trial_penalty,
+            max(1, expected_trial_count),
+        )
+
+    mean_cost = sum(costs) / len(costs)
+    worst_scenario_cost = max(
+        sum(scenario_costs) / len(scenario_costs)
+        for scenario_costs in costs_by_scenario.values()
+    )
+    objective = (
+        (1.0 - worst_case_weight) * mean_cost
+        + worst_case_weight * worst_scenario_cost
+    )
+    return objective, mean_cost, worst_scenario_cost, failure_count
 
 
 def write_json(path: Path, data: Any) -> None:
@@ -308,6 +506,7 @@ def append_history_csv(path: Path, result: IterationResult, specs: list[ParamSpe
         "iteration",
         "objective",
         "mean_scenario_cost",
+        "worst_scenario_cost",
         "trial_count",
         "expected_trial_count",
         "failure_count",
@@ -323,6 +522,7 @@ def append_history_csv(path: Path, result: IterationResult, specs: list[ParamSpe
             "iteration": result.iteration,
             "objective": result.objective,
             "mean_scenario_cost": result.mean_scenario_cost,
+            "worst_scenario_cost": result.worst_scenario_cost,
             "trial_count": result.trial_count,
             "expected_trial_count": result.expected_trial_count,
             "failure_count": result.failure_count,
@@ -346,6 +546,7 @@ def load_history(path: Path, specs: list[ParamSpec]) -> list[Observation]:
                     iteration=int(safe_float(row.get("iteration"), 0.0)),
                     params=params,
                     objective=safe_float(row.get("objective"), MISSING_TRIAL_PENALTY),
+                    failure_count=int(safe_float(row.get("failure_count"), 0.0)),
                 )
             )
     return observations
@@ -401,6 +602,7 @@ def run_iteration(
     scenario_ids: list[str],
     repeats: int,
     objective_column: str,
+    worst_case_weight: float,
     execution_backend: str | None,
     docker_container: str | None,
     container_repo_root: str | None,
@@ -429,16 +631,18 @@ def run_iteration(
     summary_csv = trials_dir / "summary.csv"
     rows = read_summary_rows(summary_csv)
     expected_trial_count = len(scenario_ids) * repeats
-    objective, failure_count = aggregate_objective(
+    objective, mean_scenario_cost, worst_scenario_cost, failure_count = aggregate_objective(
         rows,
         objective_column=objective_column,
         expected_trial_count=expected_trial_count,
+        worst_case_weight=worst_case_weight,
     )
     result = IterationResult(
         iteration=iteration,
         params=params,
         objective=objective,
-        mean_scenario_cost=objective,
+        mean_scenario_cost=mean_scenario_cost,
+        worst_scenario_cost=worst_scenario_cost,
         trial_count=len(rows),
         expected_trial_count=expected_trial_count,
         failure_count=failure_count,
@@ -462,8 +666,19 @@ def main() -> int:
     bo_dir.mkdir(parents=True, exist_ok=True)
 
     seed = args.seed if args.seed is not None else int(config.get("study", {}).get("seed", 0))
-    rng = random.Random(seed)
     initial_random = args.initial_random if args.initial_random is not None else max(len(specs) + 1, 2 * len(specs))
+    if args.iterations < 1:
+        raise SystemExit("--iterations must be at least 1")
+    if initial_random < 0:
+        raise SystemExit("--initial-random cannot be negative")
+    if args.local_warmup < 0:
+        raise SystemExit("--local-warmup cannot be negative")
+    if not 0.0 < args.local_radius <= 1.0:
+        raise SystemExit("--local-radius must be in (0, 1]")
+    if not 0.0 <= args.worst_case_weight <= 1.0:
+        raise SystemExit("--worst-case-weight must be in [0, 1]")
+    baseline_params = None if args.no_baseline else load_params_for_specs(args.baseline_params, specs)
+    local_warmup = 0 if args.no_baseline else args.local_warmup
     history_csv = bo_dir / "history.csv"
     observations = load_history(history_csv, specs) if args.resume else []
     start_iteration = len(observations)
@@ -475,11 +690,17 @@ def main() -> int:
             "scenario_ids": scenario_ids,
             "split": args.split,
             "iterations": args.iterations,
+            "no_baseline": args.no_baseline,
+            "baseline_params_file": None if args.no_baseline else args.baseline_params,
+            "baseline_params": baseline_params,
             "initial_random": initial_random,
+            "local_warmup": local_warmup,
+            "local_radius": args.local_radius,
             "candidate_pool": args.candidate_pool,
             "repeats": args.repeats,
             "seed": seed,
             "objective_column": args.objective_column,
+            "worst_case_weight": args.worst_case_weight,
             "search_space": [spec.__dict__ for spec in specs],
         },
     )
@@ -487,12 +708,30 @@ def main() -> int:
     print(f"[run_bo] bo_dir={bo_dir}", flush=True)
     print(f"[run_bo] optimizing scenarios={','.join(scenario_ids)} repeats={args.repeats}", flush=True)
     for iteration in range(start_iteration, args.iterations):
-        params = suggest_params(
-            observations,
-            specs,
-            rng,
+        iteration_rng = random.Random(f"{seed}:{iteration}")
+        params, proposal_source = propose_iteration_params(
+            iteration=iteration,
+            observations=observations,
+            baseline_params=baseline_params,
+            specs=specs,
+            rng=iteration_rng,
             initial_random=initial_random,
+            local_warmup=local_warmup,
+            local_radius=args.local_radius,
             candidate_pool=args.candidate_pool,
+        )
+        print(
+            f"[run_bo] iteration {iteration} proposal_source={proposal_source}",
+            flush=True,
+        )
+        write_json(
+            bo_dir / f"iter_{iteration:03d}" / "proposal.json",
+            {
+                "iteration": iteration,
+                "source": proposal_source,
+                "seed": seed,
+                "params": params,
+            },
         )
         result = run_iteration(
             iteration=iteration,
@@ -503,31 +742,48 @@ def main() -> int:
             scenario_ids=scenario_ids,
             repeats=args.repeats,
             objective_column=args.objective_column,
+            worst_case_weight=args.worst_case_weight,
             execution_backend=args.execution_backend,
             docker_container=args.docker_container,
             container_repo_root=args.container_repo_root,
             trial_dry_run=args.trial_dry_run,
             keep_going=not args.stop_on_failure,
         )
-        observations.append(Observation(iteration=iteration, params=params, objective=result.objective))
-        best = min(observations, key=lambda observation: observation.objective)
+        observations.append(
+            Observation(
+                iteration=iteration,
+                params=params,
+                objective=result.objective,
+                failure_count=result.failure_count,
+            )
+        )
+        best = select_best_observation(observations)
         write_json(
             bo_dir / "best_params.json",
             {
                 "iteration": best.iteration,
                 "objective": best.objective,
+                "failure_count": best.failure_count,
                 "params": best.params,
             },
         )
         print(
             "[run_bo] iteration "
-            f"{iteration} objective={result.objective:.4f} failures={result.failure_count}/"
-            f"{result.expected_trial_count}; best={best.objective:.4f} at iteration {best.iteration}",
+            f"{iteration} objective={result.objective:.4f} "
+            f"mean={result.mean_scenario_cost:.4f} "
+            f"worst={result.worst_scenario_cost:.4f} "
+            f"failures={result.failure_count}/"
+            f"{result.expected_trial_count}; best failures={best.failure_count}, "
+            f"objective={best.objective:.4f} at iteration {best.iteration}",
             flush=True,
         )
 
-    best = min(observations, key=lambda observation: observation.objective)
-    print(f"[run_bo] complete: best objective={best.objective:.4f} iteration={best.iteration}", flush=True)
+    best = select_best_observation(observations)
+    print(
+        f"[run_bo] complete: best failures={best.failure_count}, "
+        f"objective={best.objective:.4f} iteration={best.iteration}",
+        flush=True,
+    )
     print(f"[run_bo] best params: {json.dumps(best.params, sort_keys=True)}", flush=True)
     return 0
 
