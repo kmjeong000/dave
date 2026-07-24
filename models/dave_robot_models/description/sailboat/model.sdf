@@ -564,7 +564,7 @@
         <servo_min>1000</servo_min>
         <servo_max>2000</servo_max>
         <type>COMMAND</type>
-        <cmd_topic>/model/sailboat/joint/rudder_joint/cmd_pos</cmd_topic>
+        <cmd_topic>/model/sailboat/joint/rudder_joint/base_cmd_pos</cmd_topic>
         <offset>-0.5</offset>
         <multiplier>1.5708</multiplier>
       </control>
@@ -574,7 +574,7 @@
         <servo_min>1000</servo_min>
         <servo_max>2000</servo_max>
         <type>COMMAND</type>
-        <cmd_topic>/model/sailboat/joint/sail_joint/cmd_pos</cmd_topic>
+        <cmd_topic>/model/sailboat/joint/sail_joint/base_cmd_pos</cmd_topic>
         <offset>-0.5</offset>
         <multiplier>1.5708</multiplier>
       </control>

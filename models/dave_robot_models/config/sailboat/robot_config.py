@@ -21,6 +21,7 @@ def launch_setup(context, *args, **kwargs):
 
     sailboat_arguments = (
         [f"{joint}/cmd_pos@std_msgs/msg/Float64@gz.msgs.Double" for joint in sailboat_joints]
+        + [f"{joint}/base_cmd_pos@std_msgs/msg/Float64[gz.msgs.Double" for joint in sailboat_joints]
         + [f"{joint}/ang_vel@std_msgs/msg/Float64@gz.msgs.Double" for joint in sailboat_joints]
         + [
             f"/model/{namespace}/odometry@nav_msgs/msg/Odometry@gz.msgs.Odometry",
@@ -40,7 +41,30 @@ def launch_setup(context, *args, **kwargs):
         output="screen",
     )
 
-    actions = [sailboat_bridge]
+    command_adapter = Node(
+        package="dave_robot_models",
+        executable="sailboat_command_adapter.py",
+        name="sailboat_command_adapter",
+        output="screen",
+        parameters=[
+            {
+                "namespace": namespace,
+                "residual_enabled": False,
+                "base_command_timeout_s": 0.5,
+                "residual_command_timeout_s": 0.5,
+                "rudder_min_rad": -0.7854,
+                "rudder_max_rad": 0.7854,
+                "rudder_residual_limit_rad": 0.0872664626,
+                "rudder_residual_rate_limit_rad_s": 0.1745329252,
+                "sail_min_rad": -0.7854,
+                "sail_max_rad": 0.7854,
+                "sail_residual_limit_rad": 0.0872664626,
+                "sail_residual_rate_limit_rad_s": 0.1745329252,
+            }
+        ],
+    )
+
+    actions = [sailboat_bridge, command_adapter]
 
     if _as_bool(LaunchConfiguration("start_sitl").perform(context)):
         ardupilot_params = LaunchConfiguration("ardupilot_params").perform(context)
