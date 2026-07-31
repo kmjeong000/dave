@@ -45,3 +45,11 @@
 build/
 install/
 log/
+
+# Python runtime artifacts
+__pycache__/
+*.py[cod]
+
+# Local SITL/runtime output
+eeprom.bin
+logs/
