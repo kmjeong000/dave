@@ -13,3 +13,14 @@ log
 **/.DS_Store
 experiments/sailboat_BO/results
 experiments/sailboat_BO/results/**
+experiments/sailboat_BO/archive
+experiments/sailboat_BO/archive/**
+experiments/sailboat_RL/results
+experiments/sailboat_RL/results/**
+experiments/sailboat_RL/checkpoints
+experiments/sailboat_RL/checkpoints/**
+experiments/sailboat_RL/tensorboard
+experiments/sailboat_RL/tensorboard/**
+eeprom.bin
+logs
+logs/**

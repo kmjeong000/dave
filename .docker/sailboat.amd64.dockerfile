@@ -20,6 +20,15 @@ RUN python3 -m venv --system-site-packages "${SAILBOAT_VENV}" && \
     "${SAILBOAT_VENV}/bin/pip" install --no-cache-dir --upgrade "pip<26" "setuptools<80" "wheel" && \
     "${SAILBOAT_VENV}/bin/pip" install --no-cache-dir pymavlink pyyaml MAVProxy
 
+# Keep all RL Python dependencies inside the image-owned virtual environment.
+# Copy the lock surface separately so normal source edits reuse this layer.
+COPY --chown=${USERNAME}:${USERNAME} \
+    experiments/sailboat_RL/requirements.txt \
+    /tmp/sailboat_RL_requirements.txt
+RUN "${SAILBOAT_VENV}/bin/pip" install --no-cache-dir \
+        -r /tmp/sailboat_RL_requirements.txt && \
+    rm /tmp/sailboat_RL_requirements.txt
+
 ENV SAILBOAT_WS=/home/${USERNAME}/sailboat_ws
 ENV SAILBOAT_SRC_STAGING=/home/${USERNAME}/sailboat_src_staging
 
@@ -34,6 +43,8 @@ RUN python3 ${SAILBOAT_SRC_STAGING}/.docker/prepare_sailboat_workspace.py
 RUN . "/opt/ros/${ROS_DISTRO}/setup.sh" && \
     . "/opt/dave_ws/install/setup.sh" && \
     colcon build --event-handlers console_direct+
+RUN cd "${SAILBOAT_WS}/src/dave" && \
+    "${SAILBOAT_VENV}/bin/python3" -m pytest -q experiments/sailboat_RL/tests
 RUN rm -rf ${SAILBOAT_SRC_STAGING}
 
 USER root
