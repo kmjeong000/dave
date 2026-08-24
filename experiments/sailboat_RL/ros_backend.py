@@ -104,7 +104,7 @@ class Ros2AttachBackend:
     def _set_adapter_enabled(self, enabled: bool) -> None:
         if not self.manage_adapter_enabled:
             return
-        if not self._adapter_parameters.wait_for_service(
+        if not self._adapter_parameters.wait_for_services(
             timeout_sec=self.telemetry_timeout_s
         ):
             raise TimeoutError(
@@ -124,9 +124,12 @@ class Ros2AttachBackend:
             future,
             timeout_sec=self.telemetry_timeout_s,
         )
-        if not future.done() or future.result() is None:
+        if not future.done():
             raise TimeoutError("timed out setting residual_enabled")
-        results = future.result()
+        response = future.result()
+        if response is None:
+            raise TimeoutError("timed out setting residual_enabled")
+        results = response.results
         if not results or not all(result.successful for result in results):
             reasons = ", ".join(
                 result.reason for result in results if not result.successful
