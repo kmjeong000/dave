@@ -596,7 +596,46 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Generate world/parm/manifest files and print commands without launching the sim",
     )
+    parser.add_argument(
+        "--lifecycle-ready-file",
+        help="Internal RL lifecycle marker written after mission upload, arm, and AUTO readiness",
+    )
+    parser.add_argument(
+        "--lifecycle-stop-file",
+        help="Internal RL lifecycle stop request polled while the trial is running",
+    )
+    parser.add_argument(
+        "--lifecycle-status-file",
+        help="Internal RL lifecycle marker containing the terminal trial outcome",
+    )
     return parser.parse_args()
+
+
+def write_json_marker(path: Path | None, payload: dict[str, Any]) -> None:
+    """Atomically publish a small lifecycle marker for an external controller."""
+    if path is None:
+        return
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_name(f".{path.name}.{os.getpid()}.tmp")
+    temporary.write_text(
+        json.dumps(payload, indent=2, sort_keys=True),
+        encoding="utf-8",
+    )
+    os.replace(temporary, path)
+
+
+def read_lifecycle_stop_reason(path: Path | None) -> str | None:
+    """Return a cooperative stop reason when the lifecycle controller requests one."""
+    if path is None or not path.exists():
+        return None
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return "external_stop"
+    if isinstance(payload, dict):
+        reason = str(payload.get("reason", "external_stop")).strip()
+        return reason or "external_stop"
+    return "external_stop"
 
 
 def get_search_space_map(config: dict[str, Any]) -> dict[str, dict[str, Any]]:
@@ -2558,6 +2597,7 @@ def poll_samples(
     master: Any,
     context: TrialContext,
     ros_collector: RosTelemetryCollector | None = None,
+    lifecycle_stop_file: Path | None = None,
 ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
     mission_waypoints = build_mission_waypoints(context)
     mission_frame = selected_mission_frame(context)
@@ -2605,10 +2645,22 @@ def poll_samples(
     waypoint_tracker = WaypointTracker()
     status = "running"
     failure_reason = ""
+    external_stop_requested = False
     trust_mavlink_reached = trust_mavlink_reached_for_completion(context)
     use_nav_wp_dist_for_capture = selected_position_source(context) != "gazebo_odometry"
 
     while True:
+        external_stop_reason = read_lifecycle_stop_reason(lifecycle_stop_file)
+        if external_stop_reason is not None:
+            print(
+                "[run_trial] terminating trial: "
+                f"reason={external_stop_reason}, requested_by=external_lifecycle"
+            )
+            status = "failure"
+            failure_reason = external_stop_reason
+            external_stop_requested = True
+            break
+
         msg = master.recv_match(blocking=True, timeout=0.2)
         if msg is not None:
             update_state_from_message(state, msg, home_lat_deg, home_lon_deg, servo_params, mission_frame)
@@ -2996,6 +3048,7 @@ def poll_samples(
         "stuck": failure_reason == "stuck_low_speed",
         "no_progress": failure_reason == "no_progress",
         "excessive_roll": failure_reason == "excessive_roll",
+        "external_stop": external_stop_requested,
         "stuck_time_s": stuck_time_total_s,
         "roll_violation_total_s": roll_violation_total_s,
         "roll_violation_peak_continuous_s": roll_violation_peak_continuous_s,
@@ -3010,6 +3063,10 @@ def run_live_trial(
     context: TrialContext,
     execution: ExecutionConfig,
     launch_plan: LaunchPlan,
+    *,
+    lifecycle_ready_file: Path | None = None,
+    lifecycle_stop_file: Path | None = None,
+    lifecycle_status_file: Path | None = None,
 ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
     process: subprocess.Popen[str] | None = None
     master = None
@@ -3050,7 +3107,32 @@ def run_live_trial(
         enable_settle_s = float(context.study_cfg.get("sail_force_enable_settle_s", 0.5))
         if enable_settle_s > 0.0:
             time.sleep(enable_settle_s)
-        return poll_samples(master, context, ros_collector)
+        write_json_marker(
+            lifecycle_ready_file,
+            {
+                "ready": True,
+                "trial_id": context.trial_id,
+                "summary_json": str(context.files.summary_json),
+                "runner_pid": os.getpid(),
+                "ready_at_utc": datetime.now(timezone.utc).isoformat(),
+            },
+        )
+        samples, outcome = poll_samples(
+            master,
+            context,
+            ros_collector,
+            lifecycle_stop_file=lifecycle_stop_file,
+        )
+        write_json_marker(
+            lifecycle_status_file,
+            {
+                "trial_id": context.trial_id,
+                "summary_json": str(context.files.summary_json),
+                "outcome": outcome,
+                "status_at_utc": datetime.now(timezone.utc).isoformat(),
+            },
+        )
+        return samples, outcome
     finally:
         if ros_collector is not None:
             ros_collector.close()
@@ -3080,6 +3162,7 @@ def empty_live_outcome(reason: str) -> dict[str, Any]:
         "stuck": False,
         "no_progress": False,
         "excessive_roll": False,
+        "external_stop": False,
         "stuck_time_s": 0.0,
         "roll_violation_total_s": 0.0,
         "roll_violation_peak_continuous_s": 0.0,
@@ -3176,6 +3259,21 @@ def main() -> int:
     args = parse_args()
     repo_root = get_repo_root()
     workspace_root = get_workspace_root(repo_root)
+    lifecycle_ready_file = (
+        resolve_repo_path(repo_root, args.lifecycle_ready_file)
+        if args.lifecycle_ready_file
+        else None
+    )
+    lifecycle_stop_file = (
+        resolve_repo_path(repo_root, args.lifecycle_stop_file)
+        if args.lifecycle_stop_file
+        else None
+    )
+    lifecycle_status_file = (
+        resolve_repo_path(repo_root, args.lifecycle_status_file)
+        if args.lifecycle_status_file
+        else None
+    )
     scenario_path = resolve_repo_path(repo_root, args.scenario)
     config = load_yaml(scenario_path)
     execution = build_execution_config(args, config)
@@ -3215,7 +3313,14 @@ def main() -> int:
         outcome["status"] = "dry_run"
     else:
         try:
-            samples, outcome = run_live_trial(context, execution, launch_plan)
+            samples, outcome = run_live_trial(
+                context,
+                execution,
+                launch_plan,
+                lifecycle_ready_file=lifecycle_ready_file,
+                lifecycle_stop_file=lifecycle_stop_file,
+                lifecycle_status_file=lifecycle_status_file,
+            )
         except Exception as exc:
             samples = []
             outcome = empty_live_outcome("runtime_exception")
@@ -3223,6 +3328,16 @@ def main() -> int:
             outcome["failure_reason"] = "runtime_exception"
             outcome["exception_text"] = f"{type(exc).__name__}: {exc}"
             exit_code = 1
+
+    write_json_marker(
+        lifecycle_status_file,
+        {
+            "trial_id": context.trial_id,
+            "summary_json": str(context.files.summary_json),
+            "outcome": outcome,
+            "status_at_utc": datetime.now(timezone.utc).isoformat(),
+        },
+    )
 
     finished_at_utc = datetime.now(timezone.utc).isoformat()
     duration_wall_s = time.monotonic() - start_monotonic

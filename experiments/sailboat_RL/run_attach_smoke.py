@@ -54,6 +54,9 @@ def main() -> int:
         waypoint_capture_radius_m=float(
             termination.get("waypoint_capture_radius_m", 5.0)
         ),
+        waypoint_capture_hold_s=float(
+            termination.get("waypoint_capture_hold_s", 1.0)
+        ),
     )
     env = SailboatResidualEnv(
         backend,

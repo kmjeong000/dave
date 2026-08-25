@@ -23,6 +23,7 @@ class Ros2AttachBackend:
         namespace: str = "sailboat",
         wind_world_xyz_mps: Sequence[float] = (0.0, 8.0, 0.0),
         waypoint_capture_radius_m: float = 5.0,
+        waypoint_capture_hold_s: float = 1.0,
         telemetry_timeout_s: float = 5.0,
         adapter_node_name: str = "/sailboat_command_adapter",
         manage_adapter_enabled: bool = True,
@@ -56,6 +57,7 @@ class Ros2AttachBackend:
         self.wind_x_mps = float(wind_world_xyz_mps[0])
         self.wind_y_mps = float(wind_world_xyz_mps[1])
         self.capture_radius_m = float(waypoint_capture_radius_m)
+        self.capture_hold_s = max(0.0, float(waypoint_capture_hold_s))
         self.telemetry_timeout_s = float(telemetry_timeout_s)
         self.manage_adapter_enabled = bool(manage_adapter_enabled)
         self._node = rclpy.create_node(
@@ -99,14 +101,23 @@ class Ros2AttachBackend:
         self._base = {"rudder": None, "sail": None}
         self._residual = {"rudder": 0.0, "sail": 0.0}
         self._waypoint_index = 0
+        self._within_capture_radius_since_s: float | None = None
+        self._mission_complete = False
         self._closed = False
 
-    def _set_adapter_enabled(self, enabled: bool) -> None:
+    def _set_adapter_enabled(
+        self,
+        enabled: bool,
+        *,
+        allow_missing_service: bool = False,
+    ) -> bool:
         if not self.manage_adapter_enabled:
-            return
+            return False
         if not self._adapter_parameters.wait_for_services(
             timeout_sec=self.telemetry_timeout_s
         ):
+            if allow_missing_service:
+                return False
             raise TimeoutError(
                 "timed out waiting for sailboat command-adapter parameter service"
             )
@@ -137,6 +148,7 @@ class Ros2AttachBackend:
             raise RuntimeError(
                 f"command adapter rejected residual_enabled={enabled}: {reasons}"
             )
+        return True
 
     def _on_odometry(self, msg: Any) -> None:
         position = msg.pose.pose.position
@@ -202,25 +214,28 @@ class Ros2AttachBackend:
             target_x - self._pose["x_m"],
             target_y - self._pose["y_m"],
         )
-        if (
-            distance <= self.capture_radius_m
-            and self._waypoint_index < len(self.waypoints) - 1
-        ):
+        if distance > self.capture_radius_m:
+            self._within_capture_radius_since_s = None
+            return
+
+        sim_time_s = float(self._pose["sim_time_s"])
+        if self._within_capture_radius_since_s is None:
+            self._within_capture_radius_since_s = sim_time_s
+        held_s = max(0.0, sim_time_s - self._within_capture_radius_since_s)
+        if held_s + 1e-9 < self.capture_hold_s:
+            return
+
+        if self._waypoint_index < len(self.waypoints) - 1:
             self._waypoint_index += 1
+            self._within_capture_radius_since_s = None
+        else:
+            self._mission_complete = True
 
     def _state(self) -> RawState:
         if self._pose is None:
             raise RuntimeError("odometry is not available")
         self._update_waypoint()
         target_x, target_y = self.waypoints[self._waypoint_index]
-        final_distance = math.hypot(
-            target_x - self._pose["x_m"],
-            target_y - self._pose["y_m"],
-        )
-        mission_complete = (
-            self._waypoint_index == len(self.waypoints) - 1
-            and final_distance <= self.capture_radius_m
-        )
         return RawState(
             **self._pose,
             target_x_m=target_x,
@@ -233,7 +248,7 @@ class Ros2AttachBackend:
             residual_sail_rad=self._residual["sail"],
             waypoint_index=self._waypoint_index,
             waypoint_count=len(self.waypoints),
-            mission_complete=mission_complete,
+            mission_complete=self._mission_complete,
         )
 
     def reset(self, *, seed: int | None, options: dict[str, Any]) -> RawState:
@@ -243,6 +258,8 @@ class Ros2AttachBackend:
             self._waypoint_index = min(max(requested, 0), len(self.waypoints) - 1)
         else:
             self._waypoint_index = 0
+        self._within_capture_radius_since_s = None
+        self._mission_complete = False
         self._set_adapter_enabled(True)
         self._publish_residuals(0.0, 0.0)
         self._spin_until_ready(self.telemetry_timeout_s)
@@ -266,10 +283,33 @@ class Ros2AttachBackend:
     def close(self) -> None:
         if self._closed:
             return
-        self._publish_residuals(0.0, 0.0)
-        self._rclpy.spin_once(self._node, timeout_sec=0.05)
-        self._set_adapter_enabled(False)
-        self._node.destroy_node()
-        if self._owns_rclpy and self._rclpy.ok():
-            self._rclpy.shutdown()
-        self._closed = True
+        cleanup_error: Exception | None = None
+        try:
+            self._publish_residuals(0.0, 0.0)
+            self._rclpy.spin_once(self._node, timeout_sec=0.05)
+        except Exception as exc:
+            cleanup_error = exc
+
+        try:
+            # A naturally completed BO trial may already have removed the
+            # command-adapter node before Gymnasium calls the next reset().
+            # In that case there is no live adapter left to disable, so a
+            # missing service is an already-clean state rather than an error.
+            self._set_adapter_enabled(False, allow_missing_service=True)
+        except TimeoutError:
+            # The service can disappear between discovery and the parameter
+            # response while run_trial.py tears down the ROS launch process.
+            pass
+        except Exception as exc:
+            if cleanup_error is None:
+                cleanup_error = exc
+        finally:
+            try:
+                self._node.destroy_node()
+            finally:
+                if self._owns_rclpy and self._rclpy.ok():
+                    self._rclpy.shutdown()
+                self._closed = True
+
+        if cleanup_error is not None:
+            raise cleanup_error

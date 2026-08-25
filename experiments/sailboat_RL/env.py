@@ -137,6 +137,8 @@ class SailboatResidualEnv(gym.Env[np.ndarray, np.ndarray]):
             "base_sail_rad": state.base_sail_rad,
             "residual_rudder_rad": state.residual_rudder_rad,
             "residual_sail_rad": state.residual_sail_rad,
+            "backend_termination_reason": state.termination_reason,
+            "backend_termination_truncated": state.termination_truncated,
         }
 
     def close(self) -> None:

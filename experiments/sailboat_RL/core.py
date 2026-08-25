@@ -36,6 +36,8 @@ class RawState:
     waypoint_index: int = 0
     waypoint_count: int = 1
     mission_complete: bool = False
+    termination_reason: str = ""
+    termination_truncated: bool = False
 
     @property
     def distance_to_waypoint_m(self) -> float:
@@ -177,8 +179,19 @@ def evaluate_transition(
     if previous_action.shape != (2,) or action.shape != (2,):
         raise ValueError("physical actions must both have shape (2,)")
 
-    progress_m = previous.distance_to_waypoint_m - current.distance_to_waypoint_m
     waypoint_advanced = current.waypoint_index > previous.waypoint_index
+    if waypoint_advanced:
+        # The target coordinates change as soon as a waypoint is captured.
+        # Compare the new position with the previous target for this one
+        # transition; comparing distances to two different targets creates a
+        # large artificial negative reward at every waypoint handoff.
+        current_distance_for_progress = math.hypot(
+            previous.target_x_m - current.x_m,
+            previous.target_y_m - current.y_m,
+        )
+    else:
+        current_distance_for_progress = current.distance_to_waypoint_m
+    progress_m = previous.distance_to_waypoint_m - current_distance_for_progress
     mission_complete = bool(current.mission_complete)
     excessive_roll = abs(current.roll_deg) > config.max_roll_deg
     timeout = float(episode_elapsed_s) >= config.episode_timeout_s
@@ -220,6 +233,14 @@ def evaluate_transition(
         return TransitionResult(reward, True, False, "mission_complete", components)
     if excessive_roll:
         return TransitionResult(reward, True, False, "excessive_roll", components)
+    if current.termination_reason:
+        return TransitionResult(
+            reward,
+            not current.termination_truncated,
+            current.termination_truncated,
+            current.termination_reason,
+            components,
+        )
     if timeout:
         return TransitionResult(reward, False, True, "timeout", components)
     return TransitionResult(reward, False, False, "", components)

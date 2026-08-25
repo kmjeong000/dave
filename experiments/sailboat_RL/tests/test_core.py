@@ -84,6 +84,36 @@ def test_forward_progress_produces_positive_reward():
     assert not result.truncated
 
 
+def test_waypoint_handoff_does_not_compare_distances_to_different_targets():
+    config = EnvironmentConfig()
+    previous = make_state(
+        y_m=0.0,
+        roll_deg=0.0,
+        target_y_m=1.0,
+        waypoint_index=0,
+    )
+    current = make_state(
+        sim_time_s=11.0,
+        y_m=1.0,
+        roll_deg=0.0,
+        target_y_m=100.0,
+        waypoint_index=1,
+    )
+
+    result = evaluate_transition(
+        previous,
+        current,
+        [0.0, 0.0],
+        [0.0, 0.0],
+        1.0,
+        config,
+    )
+
+    assert result.components["progress"] == pytest.approx(1.0)
+    assert result.components["waypoint"] == config.reward.waypoint_bonus
+    assert result.reward == pytest.approx(11.0)
+
+
 def test_residual_effort_reduces_reward():
     config = EnvironmentConfig()
     previous = make_state()
@@ -153,3 +183,39 @@ def test_excessive_roll_terminates_episode():
 
     assert result.terminated
     assert result.reason == "excessive_roll"
+
+
+def test_backend_terminal_failure_terminates_episode():
+    config = EnvironmentConfig()
+    result = evaluate_transition(
+        make_state(),
+        make_state(sim_time_s=11.0, termination_reason="no_progress"),
+        [0.0, 0.0],
+        [0.0, 0.0],
+        1.0,
+        config,
+    )
+
+    assert result.terminated
+    assert not result.truncated
+    assert result.reason == "no_progress"
+
+
+def test_backend_infrastructure_stop_truncates_episode():
+    config = EnvironmentConfig()
+    result = evaluate_transition(
+        make_state(),
+        make_state(
+            sim_time_s=11.0,
+            termination_reason="runner_process_exit",
+            termination_truncated=True,
+        ),
+        [0.0, 0.0],
+        [0.0, 0.0],
+        1.0,
+        config,
+    )
+
+    assert not result.terminated
+    assert result.truncated
+    assert result.reason == "runner_process_exit"

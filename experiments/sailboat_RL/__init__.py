@@ -9,6 +9,7 @@ from .core import (
     evaluate_transition,
     scale_action,
 )
+from .lifecycle_backend import EpisodeLifecycleBackend, LifecycleConfig
 
 __all__ = [
     "EnvironmentConfig",
@@ -18,4 +19,6 @@ __all__ = [
     "build_observation",
     "evaluate_transition",
     "scale_action",
+    "EpisodeLifecycleBackend",
+    "LifecycleConfig",
 ]
