@@ -2,24 +2,18 @@ from __future__ import annotations
 
 import argparse
 import json
-from pathlib import Path
 
 import numpy as np
 
-from experiments.sailboat_BO.common import load_yaml
 from experiments.sailboat_BO.run_trial import (
     DEFAULT_CONTAINER_REPO_ROOT,
     get_repo_root,
-    get_scenario,
     resolve_repo_path,
 )
-from experiments.sailboat_RL.core import EnvironmentConfig
-from experiments.sailboat_RL.env import SailboatResidualEnv
-from experiments.sailboat_RL.lifecycle_backend import (
-    EpisodeLifecycleBackend,
-    LifecycleConfig,
+from experiments.sailboat_RL.runtime import (
+    LifecycleEnvironmentSettings,
+    build_lifecycle_environment,
 )
-from experiments.sailboat_RL.ros_backend import Ros2AttachBackend
 
 
 def parse_args() -> argparse.Namespace:
@@ -87,27 +81,8 @@ def main() -> int:
     scenario_path = resolve_repo_path(repo_root, args.scenario)
     params_file = resolve_repo_path(repo_root, args.params_file)
     results_dir = resolve_repo_path(repo_root, args.results_dir)
-    config = load_yaml(Path(scenario_path))
-    scenario = get_scenario(config, args.scenario_id)
-    termination = dict(config.get("termination", {}))
-    termination.update(scenario.get("termination", {}))
-    namespace = str(config["study"].get("namespace", "sailboat"))
-
-    def make_attach_backend() -> Ros2AttachBackend:
-        return Ros2AttachBackend(
-            waypoints=scenario["mission"]["waypoints"],
-            namespace=namespace,
-            wind_world_xyz_mps=scenario["world"]["wind_world_xyz_mps"],
-            waypoint_capture_radius_m=float(
-                termination.get("waypoint_capture_radius_m", 5.0)
-            ),
-            waypoint_capture_hold_s=float(
-                termination.get("waypoint_capture_hold_s", 1.0)
-            ),
-        )
-
-    backend = EpisodeLifecycleBackend(
-        LifecycleConfig(
+    env, backend = build_lifecycle_environment(
+        LifecycleEnvironmentSettings(
             repo_root=repo_root,
             scenario_path=scenario_path,
             scenario_id=args.scenario_id,
@@ -123,15 +98,6 @@ def main() -> int:
             startup_timeout_s=float(args.startup_timeout_s),
             shutdown_timeout_s=float(args.shutdown_timeout_s),
             repeat_start=int(args.repeat_start),
-        ),
-        make_attach_backend,
-    )
-    env = SailboatResidualEnv(
-        backend,
-        EnvironmentConfig(
-            success_radius_m=float(termination.get("success_radius_m", 5.0)),
-            max_roll_deg=float(termination.get("max_roll_deg", 45.0)),
-            episode_timeout_s=float(termination.get("timeout_s", 240.0)),
             control_period_s=float(args.control_period_s),
         ),
     )
@@ -193,4 +159,3 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-

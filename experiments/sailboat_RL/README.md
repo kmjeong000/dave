@@ -30,7 +30,11 @@ only then starts another episode.
 
 The BO runner remains the single owner of launch, mission, telemetry logging,
 result writing, and cleanup. Atomic ready/stop/status marker files are used for
-lifecycle coordination instead of parsing console text.
+lifecycle coordination instead of parsing console text. Local ROS waypoint
+capture is used for observations and reward shaping, but lifecycle episodes do
+not terminate until the BO runner has finalized its outcome and written the
+trial summary. This prevents `env.close()` from converting a locally detected
+mission completion into an `environment_close` BO failure.
 
 ## Installation
 
@@ -91,3 +95,102 @@ runner terminal condition.
 Per-episode BO artifacts remain under the selected results directory. Lifecycle
 runner stdout, stderr, and coordination markers are stored under
 `<results-dir>/_lifecycle/` for startup and cleanup diagnosis.
+
+## SAC environment check and training
+
+`train_sac.py` uses Stable-Baselines3 SAC to learn only the bounded rudder and
+sail residuals. It does not replace or update the frozen BO base controller.
+Every SAC episode uses the same automatic lifecycle backend as the smoke test,
+so a Gymnasium reset creates a fresh BO trial and the previous trial is cleaned
+before the next one starts.
+
+First run the live Stable-Baselines3 compatibility check. This starts real
+simulation episodes, so no BO trial should already be running:
+
+```bash
+python3 -m experiments.sailboat_RL.train_sac \
+  --scenario experiments/sailboat_BO/scenario.yaml \
+  --scenario-id eval_long_oblique \
+  --params-file experiments/sailboat_BO/verified_incumbent_params.json \
+  --run-dir experiments/sailboat_RL/results/sac_env_check \
+  --check-env-only \
+  --execution-backend local
+```
+
+Then run a short integration training check. The small values below verify that
+SAC can collect transitions, update its networks, and save artifacts; they are
+not intended to produce a useful policy:
+
+```bash
+python3 -m experiments.sailboat_RL.train_sac \
+  --scenario experiments/sailboat_BO/scenario.yaml \
+  --scenario-id eval_long_oblique \
+  --params-file experiments/sailboat_BO/verified_incumbent_params.json \
+  --run-dir experiments/sailboat_RL/results/sac_smoke \
+  --total-timesteps 20 \
+  --learning-starts 5 \
+  --buffer-size 1000 \
+  --batch-size 16 \
+  --checkpoint-freq 10 \
+  --skip-env-check \
+  --execution-backend local
+```
+
+For an initial longer run, omit `--run-dir` to create a timestamped result
+directory and use the defaults (`10000` steps, `1000` random warm-up steps).
+Each run stores `training_config.json`, `training_summary.json`, Gymnasium
+monitor data, BO trial artifacts, TensorBoard events, periodic checkpoints, the
+final model, and its replay buffer beneath one run directory.
+TensorBoard rollout scalars are emitted after every completed episode.
+
+```bash
+python3 -m experiments.sailboat_RL.train_sac \
+  --scenario-id eval_long_oblique \
+  --total-timesteps 10000 \
+  --execution-backend local
+```
+
+Inspect learning curves from another shell in the same container:
+
+```bash
+tensorboard --logdir experiments/sailboat_RL/results/sac --bind_all
+```
+
+## Deterministic paired evaluation
+
+Do not judge a policy from its training reward alone. `evaluate_sac.py` runs
+the frozen BO controller with zero residual and the saved SAC policy under the
+same seed and repeat index. In compare mode the execution order alternates
+between pairs to reduce systematic time/order bias. SAC actions are
+deterministic by default.
+
+Five pairs mean ten real simulation trials:
+
+```bash
+python3 -m experiments.sailboat_RL.evaluate_sac \
+  --model experiments/sailboat_RL/results/sac/<run>/models/sac_final.zip \
+  --mode compare \
+  --episodes 5 \
+  --scenario experiments/sailboat_BO/scenario.yaml \
+  --scenario-id eval_long_oblique \
+  --params-file experiments/sailboat_BO/verified_incumbent_params.json \
+  --execution-backend local
+```
+
+Each pair uses the same scenario, BO parameters, Gymnasium seed, and repeat
+index for the two controllers. The current scenario does not expose a separate
+Gazebo random seed, so this pairing controls configured inputs and identifiers
+but does not claim to eliminate all simulator timing noise. The output
+directory contains the complete episode records in JSON and CSV, separate BO
+trial artifacts under `zero/` and `policy/`, and an
+`evaluation_summary.json` with controller aggregates and `policy_minus_zero`
+paired deltas for reward, mission time, progress, final distance, and roll.
+
+To test only the zero-residual reference without loading a model:
+
+```bash
+python3 -m experiments.sailboat_RL.evaluate_sac \
+  --mode zero \
+  --episodes 1 \
+  --execution-backend local
+```

@@ -252,6 +252,56 @@ class EpisodeLifecycleBackend:
             return None
         return _read_json(self._control.status)
 
+    def _wait_for_terminal_status(self, state: RawState) -> RawState:
+        """Reconcile local mission capture with the BO runner outcome.
+
+        Ros2AttachBackend tracks waypoints for observations and reward shaping,
+        so it can see the final capture slightly before run_trial.py.  The BO
+        runner owns the canonical mission and safety rules; wait for its
+        finalized status instead of exposing the local capture as a terminal
+        Gym transition and then stopping the runner from close().
+        """
+
+        if self._process is None:
+            return replace(
+                state,
+                mission_complete=False,
+                termination_reason="runner_process_exit",
+                termination_truncated=True,
+            )
+
+        deadline = time.monotonic() + self.config.shutdown_timeout_s
+        while time.monotonic() < deadline:
+            status = self._status_payload()
+            if status is not None:
+                return self._apply_status(state, status)
+
+            return_code = self._process.poll()
+            if return_code is not None:
+                # The status marker and process exit can become visible in
+                # either order. Re-read once before declaring infrastructure
+                # failure.
+                status = self._status_payload()
+                if status is not None:
+                    return self._apply_status(state, status)
+                return replace(
+                    state,
+                    mission_complete=False,
+                    termination_reason="runner_process_exit",
+                    termination_truncated=True,
+                )
+            time.sleep(0.1)
+
+        status = self._status_payload()
+        if status is not None:
+            return self._apply_status(state, status)
+        return replace(
+            state,
+            mission_complete=False,
+            termination_reason="runner_terminal_sync_timeout",
+            termination_truncated=True,
+        )
+
     @staticmethod
     def _apply_status(state: RawState, payload: dict[str, Any]) -> RawState:
         outcome = payload.get("outcome", {})
@@ -271,6 +321,7 @@ class EpisodeLifecycleBackend:
         terminated_reasons = {"excessive_roll", "stuck_low_speed", "no_progress"}
         return replace(
             state,
+            mission_complete=False,
             termination_reason=reason,
             termination_truncated=reason not in terminated_reasons,
         )
@@ -389,13 +440,20 @@ class EpisodeLifecycleBackend:
         )
         status = self._status_payload()
         if status is None and self._process.poll() is not None:
-            state = replace(
-                state,
-                termination_reason="runner_process_exit",
-                termination_truncated=True,
-            )
-        elif status is not None:
+            # A final status and process exit can become visible in either
+            # order. Re-read before treating the exit as a runner failure.
+            status = self._status_payload()
+            if status is None:
+                state = replace(
+                    state,
+                    mission_complete=False,
+                    termination_reason="runner_process_exit",
+                    termination_truncated=True,
+                )
+        if status is not None:
             state = self._apply_status(state, status)
+        elif state.mission_complete:
+            state = self._wait_for_terminal_status(state)
         self._last_state = state
         return state
 

@@ -89,6 +89,7 @@ class EnvironmentConfig:
     max_roll_deg: float = 45.0
     episode_timeout_s: float = 240.0
     control_period_s: float = 0.5
+    backend_authoritative_termination: bool = False
     reward: RewardConfig = RewardConfig()
 
 
@@ -194,7 +195,13 @@ def evaluate_transition(
     progress_m = previous.distance_to_waypoint_m - current_distance_for_progress
     mission_complete = bool(current.mission_complete)
     excessive_roll = abs(current.roll_deg) > config.max_roll_deg
-    timeout = float(episode_elapsed_s) >= config.episode_timeout_s
+    local_excessive_roll = (
+        excessive_roll and not config.backend_authoritative_termination
+    )
+    timeout = (
+        float(episode_elapsed_s) >= config.episode_timeout_s
+        and not config.backend_authoritative_termination
+    )
 
     normalized_residual = np.asarray(
         [
@@ -231,7 +238,7 @@ def evaluate_transition(
 
     if mission_complete:
         return TransitionResult(reward, True, False, "mission_complete", components)
-    if excessive_roll:
+    if local_excessive_roll:
         return TransitionResult(reward, True, False, "excessive_roll", components)
     if current.termination_reason:
         return TransitionResult(

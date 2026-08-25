@@ -32,10 +32,11 @@ def make_state(**overrides) -> RawState:
 
 
 class FakeAttachBackend:
-    def __init__(self):
+    def __init__(self, step_state=None):
         self.closed = False
         self.reset_calls = []
         self.step_calls = []
+        self.step_state = step_state
 
     def reset(self, *, seed, options):
         self.reset_calls.append((seed, options))
@@ -45,21 +46,35 @@ class FakeAttachBackend:
         self.step_calls.append(
             (rudder_residual_rad, sail_residual_rad, control_period_s)
         )
-        return make_state(sim_time_s=10.5)
+        return self.step_state or make_state(sim_time_s=10.5)
 
     def close(self):
         self.closed = True
 
 
 class FakeProcess:
-    def __init__(self, stop_path: Path, status_path: Path):
+    def __init__(
+        self,
+        stop_path: Path,
+        status_path: Path,
+        natural_outcome=None,
+    ):
         self.stop_path = stop_path
         self.status_path = status_path
+        self.natural_outcome = natural_outcome
         self.return_code = None
         self.signals = []
         self.killed = False
+        self.poll_count = 0
 
     def poll(self):
+        self.poll_count += 1
+        if self.return_code is None and self.natural_outcome is not None:
+            self.status_path.write_text(
+                json.dumps({"outcome": self.natural_outcome}),
+                encoding="utf-8",
+            )
+            self.return_code = 0
         if self.return_code is None and self.stop_path.exists():
             request = json.loads(self.stop_path.read_text(encoding="utf-8"))
             self.status_path.write_text(
@@ -87,9 +102,10 @@ class FakeProcess:
 
 
 class FakeProcessFactory:
-    def __init__(self):
+    def __init__(self, natural_outcome=None):
         self.commands = []
         self.processes = []
+        self.natural_outcome = natural_outcome
 
     def __call__(self, command, cwd, stdout_path, stderr_path):
         del cwd, stdout_path, stderr_path
@@ -108,7 +124,11 @@ class FakeProcessFactory:
             ),
             encoding="utf-8",
         )
-        process = FakeProcess(stop_path, status_path)
+        process = FakeProcess(
+            stop_path,
+            status_path,
+            natural_outcome=self.natural_outcome,
+        )
         self.processes.append(process)
         return process
 
@@ -248,4 +268,57 @@ def test_runner_failure_status_is_returned_as_terminal_state(tmp_path):
     assert state.termination_reason == "no_progress"
     assert not state.termination_truncated
     assert attach.step_calls == []
+    backend.close()
+
+
+def test_local_mission_completion_waits_for_runner_success(tmp_path):
+    process_factory = FakeProcessFactory(
+        natural_outcome={
+            "status": "success",
+            "failure_reason": "",
+            "mission_complete": True,
+        }
+    )
+    attach = FakeAttachBackend(
+        step_state=make_state(sim_time_s=10.5, mission_complete=True)
+    )
+    backend = EpisodeLifecycleBackend(
+        make_config(tmp_path),
+        lambda: attach,
+        process_factory=process_factory,
+    )
+    backend.reset(seed=None, options={})
+
+    state = backend.step(0.0, 0.0, 0.5)
+
+    assert state.mission_complete
+    assert state.termination_reason == "mission_complete"
+    assert not state.termination_truncated
+    assert not process_factory.processes[0].stop_path.exists()
+    backend.close()
+
+
+def test_runner_failure_overrides_local_mission_completion(tmp_path):
+    process_factory = FakeProcessFactory(
+        natural_outcome={
+            "status": "failure",
+            "failure_reason": "no_progress",
+            "mission_complete": False,
+        }
+    )
+    attach = FakeAttachBackend(
+        step_state=make_state(sim_time_s=10.5, mission_complete=True)
+    )
+    backend = EpisodeLifecycleBackend(
+        make_config(tmp_path),
+        lambda: attach,
+        process_factory=process_factory,
+    )
+    backend.reset(seed=None, options={})
+
+    state = backend.step(0.0, 0.0, 0.5)
+
+    assert not state.mission_complete
+    assert state.termination_reason == "no_progress"
+    assert not state.termination_truncated
     backend.close()

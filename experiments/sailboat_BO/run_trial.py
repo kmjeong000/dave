@@ -3066,7 +3066,6 @@ def run_live_trial(
     *,
     lifecycle_ready_file: Path | None = None,
     lifecycle_stop_file: Path | None = None,
-    lifecycle_status_file: Path | None = None,
 ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
     process: subprocess.Popen[str] | None = None
     master = None
@@ -3122,15 +3121,6 @@ def run_live_trial(
             context,
             ros_collector,
             lifecycle_stop_file=lifecycle_stop_file,
-        )
-        write_json_marker(
-            lifecycle_status_file,
-            {
-                "trial_id": context.trial_id,
-                "summary_json": str(context.files.summary_json),
-                "outcome": outcome,
-                "status_at_utc": datetime.now(timezone.utc).isoformat(),
-            },
         )
         return samples, outcome
     finally:
@@ -3319,7 +3309,6 @@ def main() -> int:
                 launch_plan,
                 lifecycle_ready_file=lifecycle_ready_file,
                 lifecycle_stop_file=lifecycle_stop_file,
-                lifecycle_status_file=lifecycle_status_file,
             )
         except Exception as exc:
             samples = []
@@ -3328,16 +3317,6 @@ def main() -> int:
             outcome["failure_reason"] = "runtime_exception"
             outcome["exception_text"] = f"{type(exc).__name__}: {exc}"
             exit_code = 1
-
-    write_json_marker(
-        lifecycle_status_file,
-        {
-            "trial_id": context.trial_id,
-            "summary_json": str(context.files.summary_json),
-            "outcome": outcome,
-            "status_at_utc": datetime.now(timezone.utc).isoformat(),
-        },
-    )
 
     finished_at_utc = datetime.now(timezone.utc).isoformat()
     duration_wall_s = time.monotonic() - start_monotonic
@@ -3371,6 +3350,19 @@ def main() -> int:
     summary_columns = build_summary_columns(context.param_names)
     append_summary_row(context.results_dir / "summary.csv", row, summary_columns)
     write_summary_json(context, row, metrics, constraints, objective, metadata)
+
+    # Publish the lifecycle terminal marker only after all canonical BO
+    # artifacts are durable.  A Gym episode that observes this marker can now
+    # safely finish and close without racing summary generation.
+    write_json_marker(
+        lifecycle_status_file,
+        {
+            "trial_id": context.trial_id,
+            "summary_json": str(context.files.summary_json),
+            "outcome": outcome,
+            "status_at_utc": datetime.now(timezone.utc).isoformat(),
+        },
+    )
 
     print("trial_id:", context.trial_id)
     print("execution_backend:", execution.backend)

@@ -185,6 +185,27 @@ def test_excessive_roll_terminates_episode():
     assert result.reason == "excessive_roll"
 
 
+def test_backend_authority_defers_local_roll_and_timeout_checks():
+    config = EnvironmentConfig(
+        max_roll_deg=45.0,
+        episode_timeout_s=20.0,
+        backend_authoritative_termination=True,
+    )
+    result = evaluate_transition(
+        make_state(),
+        make_state(sim_time_s=30.0, roll_deg=46.0),
+        [0.0, 0.0],
+        [0.0, 0.0],
+        20.0,
+        config,
+    )
+
+    assert not result.terminated
+    assert not result.truncated
+    assert result.reason == ""
+    assert result.components["excessive_roll"] < 0.0
+
+
 def test_backend_terminal_failure_terminates_episode():
     config = EnvironmentConfig()
     result = evaluate_transition(
