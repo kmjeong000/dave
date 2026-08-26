@@ -14,7 +14,7 @@ class FakeBackend:
         self.state = self._state(sim_time_s=0.0, y_m=0.0)
 
     @staticmethod
-    def _state(sim_time_s, y_m):
+    def _state(sim_time_s, y_m, *, mission_complete=False):
         return RawState(
             sim_time_s=sim_time_s,
             x_m=0.0,
@@ -30,6 +30,8 @@ class FakeBackend:
             base_sail_rad=0.2,
             residual_rudder_rad=0.0,
             residual_sail_rad=0.0,
+            cross_track_error_m=0.0,
+            mission_complete=mission_complete,
         )
 
     def reset(self, *, seed, options):
@@ -68,3 +70,26 @@ def test_environment_conforms_to_gymnasium_api():
 
     env.close()
     assert backend.closed
+
+
+def test_terminal_step_exposes_episode_reward_components_and_progress_stats():
+    backend = FakeBackend()
+    backend.step = lambda rudder, sail, period: backend._state(
+        sim_time_s=1.0,
+        y_m=1.0,
+        mission_complete=True,
+    )
+    env = SailboatResidualEnv(backend, EnvironmentConfig())
+    env.reset(seed=7)
+
+    _observation, reward, terminated, truncated, info = env.step(
+        np.zeros(2, dtype=np.float32)
+    )
+
+    assert terminated
+    assert not truncated
+    assert info["reward_progress"] != 0.0
+    assert sum(info["episode_reward_components"].values()) == pytest.approx(
+        reward
+    )
+    assert 0.0 <= info["progress_saturation_ratio"] <= 1.0

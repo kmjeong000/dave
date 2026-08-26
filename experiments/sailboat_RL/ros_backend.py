@@ -4,6 +4,8 @@ import math
 import time
 from typing import Any, Sequence
 
+from experiments.sailboat_BO.run_trial import segment_metrics
+
 from .core import RawState
 
 
@@ -20,6 +22,7 @@ class Ros2AttachBackend:
         self,
         waypoints: Sequence[Sequence[float]],
         *,
+        spawn_xy_m: Sequence[float] = (0.0, 0.0),
         namespace: str = "sailboat",
         wind_world_xyz_mps: Sequence[float] = (0.0, 8.0, 0.0),
         waypoint_capture_radius_m: float = 5.0,
@@ -53,6 +56,13 @@ class Ros2AttachBackend:
         self.namespace = namespace.strip("/")
         self.waypoints = [
             (float(waypoint[0]), float(waypoint[1])) for waypoint in waypoints
+        ]
+        spawn = tuple(spawn_xy_m)
+        if len(spawn) < 2:
+            raise ValueError("spawn_xy_m must contain x and y")
+        self.path_points = [
+            (float(spawn[0]), float(spawn[1])),
+            *self.waypoints,
         ]
         self.wind_x_mps = float(wind_world_xyz_mps[0])
         self.wind_y_mps = float(wind_world_xyz_mps[1])
@@ -231,6 +241,22 @@ class Ros2AttachBackend:
         else:
             self._mission_complete = True
 
+    def _cross_track_error_m(self) -> float:
+        """Return BO-compatible distance to the active finite path segment."""
+        if self._pose is None:
+            raise RuntimeError("odometry is not available")
+        start_x, start_y = self.path_points[self._waypoint_index]
+        end_x, end_y = self.path_points[self._waypoint_index + 1]
+        cross_track_m, _along_track_m = segment_metrics(
+            self._pose["x_m"],
+            self._pose["y_m"],
+            start_x,
+            start_y,
+            end_x,
+            end_y,
+        )
+        return float(cross_track_m)
+
     def _state(self) -> RawState:
         if self._pose is None:
             raise RuntimeError("odometry is not available")
@@ -246,6 +272,7 @@ class Ros2AttachBackend:
             base_sail_rad=float(self._base["sail"]),
             residual_rudder_rad=self._residual["rudder"],
             residual_sail_rad=self._residual["sail"],
+            cross_track_error_m=self._cross_track_error_m(),
             waypoint_index=self._waypoint_index,
             waypoint_count=len(self.waypoints),
             mission_complete=self._mission_complete,

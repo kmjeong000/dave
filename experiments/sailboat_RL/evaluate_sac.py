@@ -16,6 +16,10 @@ from experiments.sailboat_BO.run_trial import (
     get_repo_root,
     resolve_repo_path,
 )
+from experiments.sailboat_RL.core import (
+    REWARD_COMPONENT_KEYS,
+    reward_component_info_key,
+)
 from experiments.sailboat_RL.evaluation import summarize_evaluations
 
 
@@ -221,7 +225,13 @@ def run_episode(
         options={"repeat_idx": repeat_idx},
     )
     episode_reward = 0.0
+    episode_components = {
+        name: 0.0 for name in REWARD_COMPONENT_KEYS
+    }
     episode_steps = 0
+    progress_saturation_count = 0
+    progress_normalized_abs_sum = 0.0
+    progress_normalized_abs_max = 0.0
     actions: list[np.ndarray] = []
     final_info: dict[str, Any] = {}
     terminated = False
@@ -233,6 +243,21 @@ def run_episode(
                 f"controller {controller} returned action shape {action.shape}"
             )
         observation, reward, terminated, truncated, final_info = env.step(action)
+        step_components = final_info.get("reward_components", {})
+        for name in REWARD_COMPONENT_KEYS:
+            episode_components[name] += float(step_components[name])
+        diagnostics = final_info.get("reward_diagnostics", {})
+        progress_saturation_count += int(
+            float(diagnostics.get("progress_saturated", 0.0)) > 0.5
+        )
+        progress_abs = abs(
+            float(diagnostics.get("progress_normalized", 0.0))
+        )
+        progress_normalized_abs_sum += progress_abs
+        progress_normalized_abs_max = max(
+            progress_normalized_abs_max,
+            progress_abs,
+        )
         actions.append(action.copy())
         episode_reward += float(reward)
         episode_steps += 1
@@ -276,6 +301,19 @@ def run_episode(
         ),
         "elapsed_wall_s": time.monotonic() - started_at,
     }
+    for name, value in episode_components.items():
+        record[reward_component_info_key(name)] = float(value)
+    component_sum = float(sum(episode_components.values()))
+    record["reward_component_sum"] = component_sum
+    record["reward_component_sum_error"] = component_sum - episode_reward
+    sample_count = max(episode_steps, 1)
+    record["progress_saturation_ratio"] = (
+        progress_saturation_count / sample_count
+    )
+    record["progress_normalized_abs_mean"] = (
+        progress_normalized_abs_sum / sample_count
+    )
+    record["progress_normalized_abs_max"] = progress_normalized_abs_max
     record.update(_bo_metrics(summary_json))
     return record
 

@@ -49,6 +49,10 @@ def main() -> int:
     termination.update(scenario.get("termination", {}))
     backend = Ros2AttachBackend(
         waypoints=scenario["mission"]["waypoints"],
+        spawn_xy_m=(
+            scenario["spawn"]["x_m"],
+            scenario["spawn"]["y_m"],
+        ),
         namespace=str(config["study"].get("namespace", "sailboat")),
         wind_world_xyz_mps=scenario["world"]["wind_world_xyz_mps"],
         waypoint_capture_radius_m=float(

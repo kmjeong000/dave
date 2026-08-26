@@ -35,6 +35,7 @@ class FakeBackend:
             base_sail_rad=0.2,
             residual_rudder_rad=rudder,
             residual_sail_rad=sail,
+            cross_track_error_m=0.0,
         )
 
     def reset(self, *, seed, options):

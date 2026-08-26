@@ -16,8 +16,10 @@ except ImportError as exc:  # pragma: no cover - exercised by runtime setup
 from .core import (
     EnvironmentConfig,
     RawState,
+    REWARD_COMPONENT_KEYS,
     build_observation,
     evaluate_transition,
+    reward_component_info_key,
     scale_action,
 )
 
@@ -61,11 +63,11 @@ class SailboatResidualEnv(gym.Env[np.ndarray, np.ndarray]):
         )
         self.observation_space = spaces.Box(
             low=np.asarray(
-                [0, -1, -1, 0, -2, -1, -1, -1, -1, -1, -1, 0],
+                [0, 0, -1, -1, 0, -2, -1, -1, -1, -1, -1, -1, 0],
                 dtype=np.float32,
             ),
             high=np.asarray(
-                [2, 1, 1, 2, 2, 1, 1, 1, 1, 1, 1, 1],
+                [2, 2, 1, 1, 2, 2, 1, 1, 1, 1, 1, 1, 1],
                 dtype=np.float32,
             ),
             dtype=np.float32,
@@ -73,6 +75,15 @@ class SailboatResidualEnv(gym.Env[np.ndarray, np.ndarray]):
         self._state: RawState | None = None
         self._previous_action_rad = np.zeros(2, dtype=np.float32)
         self._episode_start_sim_s = 0.0
+        self._episode_reward_components = self._empty_reward_components()
+        self._progress_sample_count = 0
+        self._progress_saturation_count = 0
+        self._progress_normalized_abs_sum = 0.0
+        self._progress_normalized_abs_max = 0.0
+
+    @staticmethod
+    def _empty_reward_components() -> dict[str, float]:
+        return {name: 0.0 for name in REWARD_COMPONENT_KEYS}
 
     def reset(
         self,
@@ -85,6 +96,11 @@ class SailboatResidualEnv(gym.Env[np.ndarray, np.ndarray]):
         self._state = state
         self._previous_action_rad = np.zeros(2, dtype=np.float32)
         self._episode_start_sim_s = float(state.sim_time_s)
+        self._episode_reward_components = self._empty_reward_components()
+        self._progress_sample_count = 0
+        self._progress_saturation_count = 0
+        self._progress_normalized_abs_sum = 0.0
+        self._progress_normalized_abs_max = 0.0
         observation = build_observation(state, self.config)
         return observation, self._build_info(state, reason="reset")
 
@@ -117,6 +133,37 @@ class SailboatResidualEnv(gym.Env[np.ndarray, np.ndarray]):
         self._previous_action_rad = physical_action
         info = self._build_info(next_state, reason=result.reason)
         info["reward_components"] = result.components
+        info["reward_diagnostics"] = result.diagnostics
+        for name in REWARD_COMPONENT_KEYS:
+            self._episode_reward_components[name] += float(
+                result.components[name]
+            )
+        progress_abs = abs(float(result.diagnostics["progress_normalized"]))
+        self._progress_sample_count += 1
+        self._progress_saturation_count += int(
+            result.diagnostics["progress_saturated"] > 0.5
+        )
+        self._progress_normalized_abs_sum += progress_abs
+        self._progress_normalized_abs_max = max(
+            self._progress_normalized_abs_max,
+            progress_abs,
+        )
+        if result.terminated or result.truncated:
+            info["episode_reward_components"] = dict(
+                self._episode_reward_components
+            )
+            for name, value in self._episode_reward_components.items():
+                info[reward_component_info_key(name)] = float(value)
+            sample_count = max(self._progress_sample_count, 1)
+            info["progress_saturation_ratio"] = (
+                self._progress_saturation_count / sample_count
+            )
+            info["progress_normalized_abs_mean"] = (
+                self._progress_normalized_abs_sum / sample_count
+            )
+            info["progress_normalized_abs_max"] = (
+                self._progress_normalized_abs_max
+            )
         info["physical_action_rad"] = physical_action.copy()
         return (
             build_observation(next_state, self.config),
@@ -131,6 +178,7 @@ class SailboatResidualEnv(gym.Env[np.ndarray, np.ndarray]):
             "reason": reason,
             "sim_time_s": state.sim_time_s,
             "distance_to_waypoint_m": state.distance_to_waypoint_m,
+            "cross_track_error_m": state.cross_track_error_m,
             "waypoint_index": state.waypoint_index,
             "waypoint_count": state.waypoint_count,
             "base_rudder_rad": state.base_rudder_rad,

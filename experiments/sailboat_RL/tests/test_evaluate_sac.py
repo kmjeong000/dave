@@ -6,6 +6,7 @@ from datetime import datetime, timezone
 import numpy as np
 import pytest
 
+from experiments.sailboat_RL.core import REWARD_COMPONENT_KEYS
 from experiments.sailboat_RL.evaluate_sac import (
     _controller_order,
     _finalize_episode_record,
@@ -30,13 +31,13 @@ class FakeEnv:
     def reset(self, *, seed, options):
         assert seed == 7
         assert options == {"repeat_idx": 11}
-        return np.zeros(12, dtype=np.float32), {"sim_time_s": 10.0}
+        return np.zeros(13, dtype=np.float32), {"sim_time_s": 10.0}
 
     def step(self, action):
         self.step_count += 1
         terminated = self.step_count == 2
         return (
-            np.zeros(12, dtype=np.float32),
+            np.zeros(13, dtype=np.float32),
             1.5,
             terminated,
             False,
@@ -44,6 +45,14 @@ class FakeEnv:
                 "reason": "mission_complete" if terminated else "",
                 "sim_time_s": 10.0 + self.step_count,
                 "distance_to_waypoint_m": 2.0,
+                "reward_components": {
+                    name: 1.5 if name == "progress" else 0.0
+                    for name in REWARD_COMPONENT_KEYS
+                },
+                "reward_diagnostics": {
+                    "progress_saturated": 0.0,
+                    "progress_normalized": 0.5,
+                },
             },
         )
 
@@ -87,6 +96,8 @@ def test_run_episode_records_rewards_actions_and_bo_metrics(tmp_path):
     assert record["sail_abs_saturation_ratio"] == 1.0
     assert record["bo_status"] == "success"
     assert record["bo_mission_time_s"] == 120.0
+    assert record["reward_progress"] == pytest.approx(3.0)
+    assert record["reward_component_sum_error"] == pytest.approx(0.0)
 
 
 def test_policy_and_compare_modes_require_model():

@@ -26,6 +26,7 @@ def make_state(**overrides) -> RawState:
         "base_sail_rad": 0.2,
         "residual_rudder_rad": 0.0,
         "residual_sail_rad": 0.0,
+        "cross_track_error_m": 0.0,
     }
     values.update(overrides)
     return RawState(**values)

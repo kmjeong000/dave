@@ -1,3 +1,7 @@
+from experiments.sailboat_RL.core import (
+    REWARD_COMPONENT_KEYS,
+    reward_component_info_key,
+)
 from experiments.sailboat_RL.evaluation import summarize_evaluations
 
 
@@ -16,6 +20,10 @@ def make_record(controller, pair_index, **overrides):
         "rudder_abs_saturation_ratio": 0.01,
         "sail_abs_saturation_ratio": 0.02,
     }
+    for name in REWARD_COMPONENT_KEYS:
+        record[reward_component_info_key(name)] = (
+            100.0 if name == "progress" else 0.0
+        )
     record.update(overrides)
     return record
 
@@ -36,6 +44,10 @@ def test_summarize_evaluations_builds_controller_and_paired_deltas():
     assert summary["paired"]["complete_pair_count"] == 2
     assert summary["paired"]["episode_reward_delta"]["mean"] == 7.5
     assert summary["paired"]["mission_time_s_delta"]["mean"] == -7.5
+    assert (
+        summary["controllers"]["zero"]["reward_components"]["progress"]["mean"]
+        == 100.0
+    )
     assert summary["paired"]["policy_better_reward_count"] == 2
     assert summary["paired"]["policy_faster_mission_count"] == 2
 

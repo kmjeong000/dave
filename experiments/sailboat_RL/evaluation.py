@@ -4,6 +4,8 @@ from collections import Counter
 from statistics import fmean, pstdev
 from typing import Any, Iterable
 
+from .core import REWARD_COMPONENT_KEYS, reward_component_info_key
+
 
 def _finite_values(records: Iterable[dict[str, Any]], key: str) -> list[float]:
     values: list[float] = []
@@ -56,13 +58,30 @@ def summarize_controller_records(
         "termination_reasons": dict(sorted(reasons.items())),
         "error_types": dict(sorted(errors.items())),
         "episode_reward": _metric_summary(completed, "episode_reward"),
+        "reward_components": {
+            name: _metric_summary(
+                completed,
+                reward_component_info_key(name),
+            )
+            for name in REWARD_COMPONENT_KEYS
+        },
         "episode_steps": _metric_summary(completed, "episode_steps"),
         "mission_time_s": _metric_summary(completed, "bo_mission_time_s"),
         "progress_ratio": _metric_summary(completed, "bo_progress_ratio"),
+        "xte_rms_m": _metric_summary(completed, "bo_xte_rms_m"),
         "final_distance_to_wp_m": _metric_summary(
             completed, "bo_final_distance_to_wp_m"
         ),
         "max_abs_roll_deg": _metric_summary(completed, "bo_max_abs_roll_deg"),
+        "rudder_action_abs_mean": _metric_summary(
+            completed, "rudder_action_abs_mean"
+        ),
+        "sail_action_abs_mean": _metric_summary(
+            completed, "sail_action_abs_mean"
+        ),
+        "progress_saturation_ratio": _metric_summary(
+            completed, "progress_saturation_ratio"
+        ),
         "rudder_abs_saturation_ratio": _metric_summary(
             completed, "rudder_abs_saturation_ratio"
         ),
@@ -123,9 +142,17 @@ def summarize_evaluations(records: list[dict[str, Any]]) -> dict[str, Any]:
             "definition": "policy_minus_zero",
             "complete_pair_count": len(pairs),
             "episode_reward_delta": _paired_metric(pairs, "episode_reward"),
+            "reward_component_deltas": {
+                name: _paired_metric(
+                    pairs,
+                    reward_component_info_key(name),
+                )
+                for name in REWARD_COMPONENT_KEYS
+            },
             "episode_steps_delta": _paired_metric(pairs, "episode_steps"),
             "mission_time_s_delta": _paired_metric(pairs, "bo_mission_time_s"),
             "progress_ratio_delta": _paired_metric(pairs, "bo_progress_ratio"),
+            "xte_rms_m_delta": _paired_metric(pairs, "bo_xte_rms_m"),
             "final_distance_to_wp_m_delta": _paired_metric(
                 pairs, "bo_final_distance_to_wp_m"
             ),

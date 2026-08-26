@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import pytest
 
+from experiments.sailboat_BO.run_trial import segment_metrics
 from experiments.sailboat_RL.ros_backend import Ros2AttachBackend
 
 
@@ -182,3 +183,16 @@ def test_waypoint_capture_requires_configured_hold_time():
     backend._update_waypoint()
     assert backend._waypoint_index == 1
     assert not backend._mission_complete
+
+
+def test_cross_track_error_matches_bo_finite_segment_metric():
+    backend = object.__new__(Ros2AttachBackend)
+    backend.path_points = [(0.0, 0.0), (10.0, 0.0)]
+    backend._waypoint_index = 0
+    backend._pose = {"x_m": 5.0, "y_m": 3.0}
+
+    expected, _along_track = segment_metrics(
+        5.0, 3.0, 0.0, 0.0, 10.0, 0.0
+    )
+
+    assert backend._cross_track_error_m() == pytest.approx(expected)

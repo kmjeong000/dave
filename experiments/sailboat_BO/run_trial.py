@@ -5,6 +5,7 @@ import codecs
 import json
 import math
 import os
+import re
 import shutil
 import shlex
 import signal
@@ -1233,7 +1234,17 @@ def run_cleanup_token(
 ) -> None:
     if not cleanup_token:
         return
-    quoted_token = shlex.quote(cleanup_token)
+    # Bracket the first character so the regex still matches the literal trial
+    # id in Gazebo/SITL command lines, but does not match the pkill command line
+    # containing the regex itself (for example, ``[2]026...``).
+    escaped_token = re.escape(cleanup_token)
+    cleanup_pattern = f"[{escaped_token[0]}]{escaped_token[1:]}"
+    quoted_pattern = shlex.quote(cleanup_pattern)
+    cleanup_script = (
+        f"pkill -TERM -f -- {quoted_pattern} >/dev/null 2>&1 || true; "
+        "sleep 0.5; "
+        f"pkill -KILL -f -- {quoted_pattern} >/dev/null 2>&1 || true"
+    )
     if execution.backend == "docker-exec" and execution.docker_container:
         cleanup_cmd = [
             "docker",
@@ -1242,13 +1253,13 @@ def run_cleanup_token(
             execution.docker_container,
             "bash",
             "-lc",
-            f"pkill -f {quoted_token} >/dev/null 2>&1 || true",
+            cleanup_script,
         ]
     else:
         cleanup_cmd = [
             "bash",
             "-lc",
-            f"pkill -f {quoted_token} >/dev/null 2>&1 || true",
+            cleanup_script,
         ]
     try:
         subprocess.run(cleanup_cmd, check=False)

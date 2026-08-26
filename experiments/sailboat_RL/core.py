@@ -7,6 +7,25 @@ from typing import Sequence
 import numpy as np
 
 
+REWARD_COMPONENT_KEYS = (
+    "progress",
+    "cross_track",
+    "roll",
+    "residual",
+    "residual_change",
+    "waypoint",
+    "mission",
+    "terminal_accuracy",
+    "excessive_roll",
+)
+
+
+def reward_component_info_key(name: str) -> str:
+    if name not in REWARD_COMPONENT_KEYS:
+        raise KeyError(f"unknown reward component: {name}")
+    return f"reward_{name}"
+
+
 def _clip(value: float, lower: float, upper: float) -> float:
     return min(max(float(value), float(lower)), float(upper))
 
@@ -33,6 +52,7 @@ class RawState:
     base_sail_rad: float
     residual_rudder_rad: float
     residual_sail_rad: float
+    cross_track_error_m: float
     waypoint_index: int = 0
     waypoint_count: int = 1
     mission_complete: bool = False
@@ -66,13 +86,16 @@ class RawState:
 
 @dataclass(frozen=True)
 class RewardConfig:
-    progress_weight: float = 1.0
-    cross_track_weight: float = 0.02
-    roll_weight: float = 0.01
-    residual_weight: float = 0.10
-    residual_change_weight: float = 0.05
+    # Match progress_scale_m so unsaturated progress reward remains equal to
+    # progress in metres, as it was before normalization.
+    progress_weight: float = 3.0
+    cross_track_weight: float = 0.10
+    roll_weight: float = 0.45
+    residual_weight: float = 0.20
+    residual_change_weight: float = 0.40
     waypoint_bonus: float = 10.0
     mission_bonus: float = 50.0
+    terminal_accuracy_weight: float = 10.0
     excessive_roll_penalty: float = 50.0
 
 
@@ -81,7 +104,10 @@ class EnvironmentConfig:
     rudder_residual_limit_rad: float = math.radians(5.0)
     sail_residual_limit_rad: float = math.radians(5.0)
     distance_scale_m: float = 100.0
-    cross_track_scale_m: float = 20.0
+    # A 1.5 m scale saturated about 21% of live 0.5 s control steps.  Three
+    # metres retains headroom while preserving metre-for-metre reward below it.
+    progress_scale_m: float = 3.0
+    cross_track_scale_m: float = 5.0
     speed_scale_mps: float = 3.0
     roll_scale_deg: float = 45.0
     actuator_scale_rad: float = math.radians(45.0)
@@ -100,6 +126,7 @@ class TransitionResult:
     truncated: bool
     reason: str
     components: dict[str, float]
+    diagnostics: dict[str, float]
 
 
 def scale_action(
@@ -134,6 +161,12 @@ def build_observation(state: RawState, config: EnvironmentConfig) -> np.ndarray:
     return np.asarray(
         [
             _clip(distance / config.distance_scale_m, 0.0, 2.0),
+            _clip(
+                state.cross_track_error_m
+                / max(config.cross_track_scale_m, 1e-9),
+                0.0,
+                2.0,
+            ),
             math.sin(heading_error),
             math.cos(heading_error),
             _clip(state.speed_mps / config.speed_scale_mps, 0.0, 2.0),
@@ -193,6 +226,21 @@ def evaluate_transition(
     else:
         current_distance_for_progress = current.distance_to_waypoint_m
     progress_m = previous.distance_to_waypoint_m - current_distance_for_progress
+    progress_normalized = _clip(
+        progress_m / max(config.progress_scale_m, 1e-9),
+        -1.0,
+        1.0,
+    )
+    cross_track_normalized = _clip(
+        current.cross_track_error_m / max(config.cross_track_scale_m, 1e-9),
+        0.0,
+        1.0,
+    )
+    roll_normalized = _clip(
+        abs(current.roll_deg) / max(config.roll_scale_deg, 1e-9),
+        0.0,
+        1.0,
+    )
     mission_complete = bool(current.mission_complete)
     excessive_roll = abs(current.roll_deg) > config.max_roll_deg
     local_excessive_roll = (
@@ -203,43 +251,89 @@ def evaluate_transition(
         and not config.backend_authoritative_termination
     )
 
-    normalized_residual = np.asarray(
-        [
-            action[0] / config.rudder_residual_limit_rad,
-            action[1] / config.sail_residual_limit_rad,
-        ],
-        dtype=np.float32,
+    normalized_residual = np.clip(
+        np.asarray(
+            [
+                action[0] / config.rudder_residual_limit_rad,
+                action[1] / config.sail_residual_limit_rad,
+            ],
+            dtype=np.float32,
+        ),
+        -1.0,
+        1.0,
     )
-    normalized_change = np.asarray(
-        [
-            (action[0] - previous_action[0]) / config.rudder_residual_limit_rad,
-            (action[1] - previous_action[1]) / config.sail_residual_limit_rad,
-        ],
-        dtype=np.float32,
+    # Moving from -limit to +limit is the largest possible one-step change.
+    # Dividing by 2*limit keeps each change input in [-1, 1].
+    normalized_change = np.clip(
+        np.asarray(
+            [
+                (action[0] - previous_action[0])
+                / (2.0 * config.rudder_residual_limit_rad),
+                (action[1] - previous_action[1])
+                / (2.0 * config.sail_residual_limit_rad),
+            ],
+            dtype=np.float32,
+        ),
+        -1.0,
+        1.0,
+    )
+    terminal_accuracy_normalized = (
+        1.0
+        - _clip(
+            current.distance_to_waypoint_m
+            / max(config.success_radius_m, 1e-9),
+            0.0,
+            1.0,
+        )
+        if mission_complete
+        else 0.0
     )
 
     components = {
-        "progress": config.reward.progress_weight * progress_m,
-        # Cross-track requires a path-segment estimate and is reserved for the
-        # lifecycle backend. Keep the component explicit for stable logging.
-        "cross_track": 0.0,
-        "roll": -config.reward.roll_weight * abs(current.roll_deg),
+        "progress": config.reward.progress_weight * progress_normalized,
+        "cross_track": -config.reward.cross_track_weight
+        * cross_track_normalized,
+        "roll": -config.reward.roll_weight * roll_normalized,
         "residual": -config.reward.residual_weight
-        * float(np.square(normalized_residual).sum()),
+        * float(np.square(normalized_residual).mean()),
         "residual_change": -config.reward.residual_change_weight
-        * float(np.square(normalized_change).sum()),
+        * float(np.square(normalized_change).mean()),
         "waypoint": config.reward.waypoint_bonus if waypoint_advanced else 0.0,
         "mission": config.reward.mission_bonus if mission_complete else 0.0,
+        "terminal_accuracy": config.reward.terminal_accuracy_weight
+        * terminal_accuracy_normalized,
         "excessive_roll": (
             -config.reward.excessive_roll_penalty if excessive_roll else 0.0
         ),
     }
     reward = float(sum(components.values()))
+    diagnostics = {
+        "progress_m": float(progress_m),
+        "progress_normalized": float(progress_normalized),
+        "progress_saturated": float(abs(progress_normalized) >= 1.0 - 1e-9),
+        "cross_track_normalized": float(cross_track_normalized),
+        "roll_normalized": float(roll_normalized),
+        "terminal_accuracy_normalized": float(terminal_accuracy_normalized),
+    }
 
     if mission_complete:
-        return TransitionResult(reward, True, False, "mission_complete", components)
+        return TransitionResult(
+            reward,
+            True,
+            False,
+            "mission_complete",
+            components,
+            diagnostics,
+        )
     if local_excessive_roll:
-        return TransitionResult(reward, True, False, "excessive_roll", components)
+        return TransitionResult(
+            reward,
+            True,
+            False,
+            "excessive_roll",
+            components,
+            diagnostics,
+        )
     if current.termination_reason:
         return TransitionResult(
             reward,
@@ -247,7 +341,22 @@ def evaluate_transition(
             current.termination_truncated,
             current.termination_reason,
             components,
+            diagnostics,
         )
     if timeout:
-        return TransitionResult(reward, False, True, "timeout", components)
-    return TransitionResult(reward, False, False, "", components)
+        return TransitionResult(
+            reward,
+            False,
+            True,
+            "timeout",
+            components,
+            diagnostics,
+        )
+    return TransitionResult(
+        reward,
+        False,
+        False,
+        "",
+        components,
+        diagnostics,
+    )

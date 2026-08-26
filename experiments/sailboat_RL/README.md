@@ -109,8 +109,8 @@ simulation episodes, so no BO trial should already be running:
 
 ```bash
 python3 -m experiments.sailboat_RL.train_sac \
-  --scenario experiments/sailboat_BO/scenario.yaml \
-  --scenario-id eval_long_oblique \
+  --scenario experiments/sailboat_BO/scenario_generalization.yaml \
+  --scenario-id train_crosswind_straight \
   --params-file experiments/sailboat_BO/verified_incumbent_params.json \
   --run-dir experiments/sailboat_RL/results/sac_env_check \
   --check-env-only \
@@ -123,8 +123,8 @@ not intended to produce a useful policy:
 
 ```bash
 python3 -m experiments.sailboat_RL.train_sac \
-  --scenario experiments/sailboat_BO/scenario.yaml \
-  --scenario-id eval_long_oblique \
+  --scenario experiments/sailboat_BO/scenario_generalization.yaml \
+  --scenario-id train_crosswind_straight \
   --params-file experiments/sailboat_BO/verified_incumbent_params.json \
   --run-dir experiments/sailboat_RL/results/sac_smoke \
   --total-timesteps 20 \
@@ -145,10 +145,15 @@ TensorBoard rollout scalars are emitted after every completed episode.
 
 ```bash
 python3 -m experiments.sailboat_RL.train_sac \
-  --scenario-id eval_long_oblique \
+  --scenario experiments/sailboat_BO/scenario_generalization.yaml \
+  --scenario-id train_crosswind_straight \
   --total-timesteps 10000 \
   --execution-backend local
 ```
+
+Training is rejected unless the selected scenario has `split: train`.
+`eval_long_oblique` and `eval_shifted_wind_loop` are holdouts and must only be
+used with `evaluate_sac.py`.
 
 Inspect learning curves from another shell in the same container:
 
@@ -171,7 +176,7 @@ python3 -m experiments.sailboat_RL.evaluate_sac \
   --model experiments/sailboat_RL/results/sac/<run>/models/sac_final.zip \
   --mode compare \
   --episodes 5 \
-  --scenario experiments/sailboat_BO/scenario.yaml \
+  --scenario experiments/sailboat_BO/scenario_generalization.yaml \
   --scenario-id eval_long_oblique \
   --params-file experiments/sailboat_BO/verified_incumbent_params.json \
   --execution-backend local

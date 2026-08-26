@@ -48,6 +48,10 @@ def build_lifecycle_environment(
     def make_attach_backend() -> Ros2AttachBackend:
         return Ros2AttachBackend(
             waypoints=scenario["mission"]["waypoints"],
+            spawn_xy_m=(
+                scenario["spawn"]["x_m"],
+                scenario["spawn"]["y_m"],
+            ),
             namespace=namespace,
             wind_world_xyz_mps=scenario["world"]["wind_world_xyz_mps"],
             waypoint_capture_radius_m=float(
@@ -78,6 +82,9 @@ def build_lifecycle_environment(
         backend,
         EnvironmentConfig(
             success_radius_m=float(termination.get("success_radius_m", 5.0)),
+            cross_track_scale_m=float(
+                termination.get("success_radius_m", 5.0)
+            ),
             max_roll_deg=float(termination.get("max_roll_deg", 45.0)),
             episode_timeout_s=float(termination.get("timeout_s", 240.0)),
             control_period_s=settings.control_period_s,

@@ -11,10 +11,16 @@ from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
 from typing import Any, Sequence
 
+from experiments.sailboat_BO.common import load_yaml
 from experiments.sailboat_BO.run_trial import (
     DEFAULT_CONTAINER_REPO_ROOT,
+    get_scenario,
     get_repo_root,
     resolve_repo_path,
+)
+from experiments.sailboat_RL.core import (
+    REWARD_COMPONENT_KEYS,
+    reward_component_info_key,
 )
 
 
@@ -24,9 +30,9 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     )
     parser.add_argument(
         "--scenario",
-        default="experiments/sailboat_BO/scenario.yaml",
+        default="experiments/sailboat_BO/scenario_generalization.yaml",
     )
-    parser.add_argument("--scenario-id", default="eval_long_oblique")
+    parser.add_argument("--scenario-id", default="train_crosswind_straight")
     parser.add_argument(
         "--params-file",
         default="experiments/sailboat_BO/verified_incumbent_params.json",
@@ -115,6 +121,21 @@ def validate_training_args(args: argparse.Namespace) -> None:
         raise ValueError("--shutdown-timeout-s must be positive")
 
 
+def validate_training_scenario(
+    scenario_config: dict[str, Any],
+    scenario_id: str,
+) -> dict[str, Any]:
+    """Reject validation/eval scenarios before creating any training output."""
+    scenario = get_scenario(scenario_config, scenario_id)
+    split = str(scenario.get("split", "")).strip().lower()
+    if split != "train":
+        raise ValueError(
+            f"SAC training requires split=train, but {scenario_id!r} "
+            f"uses split={split or 'missing'!r}"
+        )
+    return scenario
+
+
 def default_run_dir(repo_root: Path, *, now: datetime | None = None) -> Path:
     timestamp = (now or datetime.now(timezone.utc)).strftime("%Y%m%dT%H%M%SZ")
     return (
@@ -191,7 +212,11 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     try:
         from stable_baselines3 import SAC
-        from stable_baselines3.common.callbacks import CheckpointCallback
+        from stable_baselines3.common.callbacks import (
+            BaseCallback,
+            CallbackList,
+            CheckpointCallback,
+        )
         from stable_baselines3.common.env_checker import check_env
         from stable_baselines3.common.monitor import Monitor
         from experiments.sailboat_RL.runtime import (
@@ -207,6 +232,10 @@ def main(argv: Sequence[str] | None = None) -> int:
     repo_root = get_repo_root()
     scenario_path = resolve_repo_path(repo_root, args.scenario)
     params_file = resolve_repo_path(repo_root, args.params_file)
+    try:
+        validate_training_scenario(load_yaml(scenario_path), args.scenario_id)
+    except (KeyError, ValueError) as exc:
+        raise SystemExit(str(exc)) from exc
     run_dir = (
         resolve_repo_path(repo_root, args.run_dir)
         if args.run_dir
@@ -269,19 +298,58 @@ def main(argv: Sequence[str] | None = None) -> int:
             )
             return 0
 
+        class RewardComponentLoggingCallback(BaseCallback):
+            def _on_step(self) -> bool:
+                infos = self.locals.get("infos", [])
+                dones = self.locals.get("dones", [])
+                for info, done in zip(infos, dones):
+                    if not done:
+                        continue
+                    for name in REWARD_COMPONENT_KEYS:
+                        key = reward_component_info_key(name)
+                        if key in info:
+                            self.logger.record(
+                                f"rollout/reward_{name}",
+                                float(info[key]),
+                            )
+                    for key in (
+                        "progress_saturation_ratio",
+                        "progress_normalized_abs_mean",
+                        "progress_normalized_abs_max",
+                    ):
+                        if key in info:
+                            self.logger.record(
+                                f"rollout/{key}",
+                                float(info[key]),
+                            )
+                return True
+
+        monitor_info_keywords = (
+            "reason",
+            *tuple(
+                reward_component_info_key(name)
+                for name in REWARD_COMPONENT_KEYS
+            ),
+            "progress_saturation_ratio",
+            "progress_normalized_abs_mean",
+            "progress_normalized_abs_max",
+        )
         wrapped_env = Monitor(
             env,
             filename=str(run_dir / "monitor.csv"),
-            info_keywords=("reason",),
+            info_keywords=monitor_info_keywords,
         )
-        callback = None
+        callbacks: list[BaseCallback] = [RewardComponentLoggingCallback()]
         if args.checkpoint_freq > 0:
-            callback = CheckpointCallback(
-                save_freq=args.checkpoint_freq,
-                save_path=str(run_dir / "checkpoints"),
-                name_prefix="sac_sailboat",
-                save_replay_buffer=True,
+            callbacks.append(
+                CheckpointCallback(
+                    save_freq=args.checkpoint_freq,
+                    save_path=str(run_dir / "checkpoints"),
+                    name_prefix="sac_sailboat",
+                    save_replay_buffer=True,
+                )
             )
+        callback = CallbackList(callbacks)
 
         model = SAC(
             "MlpPolicy",

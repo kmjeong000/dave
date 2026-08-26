@@ -9,6 +9,7 @@ from experiments.sailboat_RL.train_sac import (
     parse_args,
     prepare_run_dir,
     validate_training_args,
+    validate_training_scenario,
 )
 
 
@@ -27,6 +28,29 @@ def test_training_arguments_accept_short_smoke_configuration():
     )
 
     validate_training_args(args)
+
+
+def test_training_defaults_to_train_split_scenario():
+    args = parse_args([])
+
+    assert args.scenario.endswith("scenario_generalization.yaml")
+    assert args.scenario_id == "train_crosswind_straight"
+
+
+def test_training_scenario_rejects_holdout_split():
+    config = {
+        "scenarios": [
+            {"id": "train_case", "split": "train"},
+            {"id": "eval_case", "split": "eval"},
+            {"id": "validation_case", "split": "validation"},
+        ]
+    }
+
+    assert validate_training_scenario(config, "train_case")["split"] == "train"
+    with pytest.raises(ValueError, match="split=train"):
+        validate_training_scenario(config, "eval_case")
+    with pytest.raises(ValueError, match="split=train"):
+        validate_training_scenario(config, "validation_case")
 
 
 def test_training_arguments_reject_run_without_learning():
