@@ -44,7 +44,10 @@ RUN . "/opt/ros/${ROS_DISTRO}/setup.sh" && \
     . "/opt/dave_ws/install/setup.sh" && \
     colcon build --event-handlers console_direct+
 RUN cd "${SAILBOAT_WS}/src/dave" && \
-    "${SAILBOAT_VENV}/bin/python3" -m pytest -q experiments/sailboat_RL/tests
+    "${SAILBOAT_VENV}/bin/python3" -m pytest -q \
+        experiments/sailboat_RL/tests \
+        experiments/sailboat_physics/tests \
+        experiments/sailboat_BO/tests/test_run_trial_mission.py
 RUN rm -rf ${SAILBOAT_SRC_STAGING}
 
 USER root

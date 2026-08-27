@@ -1019,6 +1019,8 @@ def build_launch_command(
     study_cfg = context.study_cfg
     home_lat, home_lon, home_alt = study_cfg["home_llh"]
     gazebo_spawn_yaw_deg = selected_gazebo_spawn_yaw_deg(spawn)
+    gazebo_spawn_roll_deg = float(spawn.get("gazebo_roll_deg", 0.0))
+    gazebo_spawn_pitch_deg = float(spawn.get("gazebo_pitch_deg", 0.0))
     ardupilot_heading_deg = selected_ardupilot_home_heading_deg(spawn)
     ardupilot_home = f"{home_lat},{home_lon},{home_alt},{ardupilot_heading_deg}"
     launch_cmd = [
@@ -1030,6 +1032,8 @@ def build_launch_command(
         f"x:={spawn['x_m']}",
         f"y:={spawn['y_m']}",
         f"z:={spawn['z_m']}",
+        f"roll:={math.radians(gazebo_spawn_roll_deg)}",
+        f"pitch:={math.radians(gazebo_spawn_pitch_deg)}",
         f"yaw:={math.radians(gazebo_spawn_yaw_deg)}",
         f"ardupilot_params:={param_file if param_file is not None else context.files.param_file}",
         f"ardupilot_home:={ardupilot_home}",
@@ -3207,6 +3211,8 @@ def build_metadata(
         "spawn_x_m": spawn["x_m"],
         "spawn_y_m": spawn["y_m"],
         "spawn_z_m": spawn["z_m"],
+        "spawn_gazebo_roll_deg": float(spawn.get("gazebo_roll_deg", 0.0)),
+        "spawn_gazebo_pitch_deg": float(spawn.get("gazebo_pitch_deg", 0.0)),
         "spawn_yaw_deg": gazebo_spawn_yaw_deg,
         "spawn_course_deg": spawn["yaw_deg"],
         "spawn_heading_deg": ardupilot_heading_deg,

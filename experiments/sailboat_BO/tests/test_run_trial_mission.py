@@ -200,13 +200,43 @@ class MissionUploadTests(unittest.TestCase):
         launch_cmd = run_trial.build_launch_command(context, "dogleg_world")
 
         yaw_arg = next(item for item in launch_cmd if item.startswith("yaw:="))
+        roll_arg = next(item for item in launch_cmd if item.startswith("roll:="))
+        pitch_arg = next(item for item in launch_cmd if item.startswith("pitch:="))
         home_arg = next(item for item in launch_cmd if item.startswith("ardupilot_home:="))
         self.assertAlmostEqual(
             float(yaw_arg.split(":=", 1)[1]),
             math.radians(-63.435),
             places=6,
         )
+        self.assertEqual(roll_arg, "roll:=0.0")
+        self.assertEqual(pitch_arg, "pitch:=0.0")
         self.assertEqual(home_arg, "ardupilot_home:=44.0,-124.0,0.0,63.435")
+
+    def test_launch_command_passes_explicit_gazebo_roll_and_pitch(self):
+        context = SimpleNamespace(
+            launch_file="/tmp/launch.py",
+            study_cfg={
+                "home_llh": [44.0, -124.0, 0.0],
+                "namespace": "sailboat",
+            },
+            scenario_cfg={
+                "spawn": {
+                    "x_m": 0.0,
+                    "y_m": 0.0,
+                    "z_m": 0.2,
+                    "heading_deg": 90.0,
+                    "gazebo_roll_deg": -5.0,
+                    "gazebo_pitch_deg": 10.0,
+                },
+            },
+            files=SimpleNamespace(param_file="/tmp/trial.parm"),
+        )
+
+        launch_cmd = run_trial.build_launch_command(context, "frame_world")
+
+        self.assertIn(f"roll:={math.radians(-5.0)}", launch_cmd)
+        self.assertIn(f"pitch:={math.radians(10.0)}", launch_cmd)
+        self.assertIn(f"yaw:={math.radians(-90.0)}", launch_cmd)
 
     def test_gazebo_odometry_does_not_trust_mavlink_reached_for_completion(self):
         context = make_context()
