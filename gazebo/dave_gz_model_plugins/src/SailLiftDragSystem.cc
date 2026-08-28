@@ -279,8 +279,14 @@ public:
 
     const double simSec = std::chrono::duration<double>(_info.simTime).count();
     const double forceScale = this->CurrentForceScale(simSec);
-    if (forceScale <= 1e-9)
-      return;
+
+    // Read and evaluate the same aerodynamic input even while force application
+    // is gated off. Physics-validation runs deliberately keep the sail force
+    // disabled; they still need to observe the apparent wind and coefficient
+    // calculation without changing the vehicle dynamics.
+    std::string windSource;
+    const gz::math::Vector3d windWorld =
+      this->CurrentWindWorld(_ecm, windSource);
 
     const auto poseOpt = this->link.WorldPose(_ecm);
     const auto velOpt = this->link.WorldLinearVelocity(_ecm, this->modelData.Params().cp);
@@ -289,11 +295,27 @@ public:
 
     // Equivalent to asv_sim SailPlugin:
     // free stream = wind velocity at sail - sail CP velocity.
-    std::string windSource;
-    const gz::math::Vector3d windWorld =
-      this->CurrentWindWorld(_ecm, windSource);
     const gz::math::Vector3d freeStream = windWorld - *velOpt;
     auto result = this->modelData.Compute(freeStream, *poseOpt);
+
+    if (forceScale <= 1e-9)
+    {
+      if (this->debug && simSec - this->lastDebugTime >= this->debugPeriod)
+      {
+        this->lastDebugTime = simSec;
+        gzerr << "[SailLiftDragSystem] link=" << this->linkName
+              << " simTimeS=" << simSec
+              << " windSource=" << windSource
+              << " forceScale=" << forceScale
+              << " windWorld=" << windWorld
+              << " Vapp=" << freeStream
+              << " speed=" << result.speed
+              << " alpha_deg=" << (result.alpha * 180.0 / 3.14159265358979323846)
+              << " cl=" << result.cl
+              << " cd=" << result.cd << "\n";
+      }
+      return;
+    }
 
     if (result.force.Length() <= 0.0)
       return;
@@ -323,6 +345,7 @@ public:
       {
         this->lastDebugTime = simSec;
         gzmsg << "[SailLiftDragSystem] link=" << this->linkName
+              << " simTimeS=" << simSec
               << " windSource=" << windSource
               << " forceScale=" << forceScale
               << " forceLimitScale=" << forceLimitScale

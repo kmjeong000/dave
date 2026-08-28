@@ -87,3 +87,45 @@ python3 -m pytest -q \
   experiments/sailboat_physics/tests \
   experiments/sailboat_BO/tests/test_run_trial_mission.py
 ```
+
+## Wind contract diagnostic
+
+After the attitude-frame check passes, run the wind diagnostic. It launches six
+fresh, unarmed held-pose cases:
+
+- north-, east-, south-, and west-going static wind at heading 0 degrees;
+- north-going wind at heading 90 degrees, which distinguishes world-frame from
+  sensor-frame anemometer output;
+- a north-going wind with sinusoidal magnitude, which checks live updates in a
+  single running process.
+
+Sail force remains disabled. `SailLiftDragSystem` now reports the wind selected
+by `PreUpdate()` even in that gated state, so the diagnostic does not need to
+move or arm the boat to inspect the aerodynamic input.
+
+```bash
+python3 -m experiments.sailboat_physics.diagnose_wind \
+  --label post_frame_fix \
+  --scenario experiments/sailboat_BO/scenario.yaml \
+  --base-scenario-id train_crosswind_straight \
+  --params-file experiments/sailboat_BO/baseline_params.json \
+  --results-dir /home/docker/sailboat_rl_results/physics/wind_checks \
+  --execution-backend local \
+  --require-pass
+```
+
+Inspect the printed timestamped `run_dir`:
+
+- `wind_check_summary.json`: full gates and inferred anemometer frame contract;
+- `wind_check_summary.csv`: one compact row per case;
+- `cases/<trial_id>/raw/wind_samples.csv`: raw anemometer and MAVLink `WIND`;
+- `cases/<trial_id>/raw/sail_plugin_wind.csv`: actual wind source and value read
+  by the sail-force plugin;
+- `cases/<trial_id>/logs/launch.*.log`: original runtime evidence.
+
+The run passes only when all cases complete, the installed anemometer contract
+is consistent, the static directions/speeds match, the sail plugin reads the
+Gazebo world component, and all three paths change during the dynamic case.
+`wind_check: RUNTIME_INCOMPLETE` means data collection or cleanup failed;
+`COMPLETED_WITH_GATE_FAILURES` means the run completed but exposed a coordinate,
+source-selection, or live-update mismatch.
