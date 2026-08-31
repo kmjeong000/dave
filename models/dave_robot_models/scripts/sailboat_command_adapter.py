@@ -9,7 +9,12 @@ from rclpy.executors import ExternalShutdownException
 from rclpy.node import Node
 from std_msgs.msg import Float64
 
-from command_adapter_core import clamp, mix_command, rate_limit
+from command_adapter_core import (
+    clamp,
+    mix_command,
+    rate_limit,
+    select_diagnostic_override,
+)
 
 
 class SailboatCommandAdapter(Node):
@@ -18,6 +23,8 @@ class SailboatCommandAdapter(Node):
 
         namespace = str(self.declare_parameter("namespace", "sailboat").value).strip("/")
         residual_enabled = bool(self.declare_parameter("residual_enabled", False).value)
+        self.declare_parameter("diagnostic_rudder_override_enabled", False)
+        self.declare_parameter("diagnostic_rudder_command_rad", 0.0)
         self.base_timeout_s = float(
             self.declare_parameter("base_command_timeout_s", 0.5).value
         )
@@ -150,14 +157,30 @@ class SailboatCommandAdapter(Node):
                     elapsed_s=max(0.0, now - self.mix_times[surface]),
                 )
 
-            command = mix_command(
-                base,
-                applied_residual,
-                residual_enabled=residual_enabled,
-                command_min=limits["min"],
-                command_max=limits["max"],
-                residual_limit=limits["residual"],
+            diagnostic_override_enabled = bool(
+                surface == "rudder"
+                and self.get_parameter(
+                    "diagnostic_rudder_override_enabled"
+                ).value
             )
+            if diagnostic_override_enabled:
+                command = select_diagnostic_override(
+                    base,
+                    self.get_parameter("diagnostic_rudder_command_rad").value,
+                    override_enabled=True,
+                    command_min=limits["min"],
+                    command_max=limits["max"],
+                )
+                applied_residual = 0.0
+            else:
+                command = mix_command(
+                    base,
+                    applied_residual,
+                    residual_enabled=residual_enabled,
+                    command_min=limits["min"],
+                    command_max=limits["max"],
+                    residual_limit=limits["residual"],
+                )
         except ValueError as exc:
             self.get_logger().error(f"rejected invalid {surface} command: {exc}")
             return

@@ -47,6 +47,7 @@ RUN cd "${SAILBOAT_WS}/src/dave" && \
     "${SAILBOAT_VENV}/bin/python3" -m pytest -q \
         experiments/sailboat_RL/tests \
         experiments/sailboat_physics/tests \
+        experiments/sailboat_BO/tests/test_run_trial_frames.py \
         experiments/sailboat_BO/tests/test_run_trial_mission.py
 RUN rm -rf ${SAILBOAT_SRC_STAGING}
 

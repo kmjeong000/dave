@@ -83,6 +83,30 @@ def test_rate_limit_reaches_nearby_target_without_overshoot():
     assert result == pytest.approx(0.01)
 
 
+def test_disabled_diagnostic_override_preserves_controller_command():
+    result = CORE.select_diagnostic_override(
+        -0.2,
+        0.4,
+        override_enabled=False,
+        command_min=-0.7854,
+        command_max=0.7854,
+    )
+
+    assert result == pytest.approx(-0.2)
+
+
+def test_enabled_diagnostic_override_selects_bounded_explicit_command():
+    result = CORE.select_diagnostic_override(
+        -0.2,
+        2.0,
+        override_enabled=True,
+        command_min=-0.7854,
+        command_max=0.7854,
+    )
+
+    assert result == pytest.approx(0.7854)
+
+
 @pytest.mark.parametrize(
     ("max_rate", "elapsed_s"),
     [(-0.1, 0.1), (0.1, -0.1)],

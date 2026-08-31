@@ -59,3 +59,17 @@ def mix_command(
         residual = 0.0
     residual = clamp(residual, -limit, limit)
     return clamp(base + residual, float(command_min), float(command_max))
+
+
+def select_diagnostic_override(
+    command,
+    override_command,
+    *,
+    override_enabled,
+    command_min,
+    command_max,
+):
+    """Select a bounded explicit command when a diagnostic override is enabled."""
+
+    selected = float(override_command) if override_enabled else float(command)
+    return clamp(selected, float(command_min), float(command_max))

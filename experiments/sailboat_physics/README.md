@@ -129,3 +129,74 @@ Gazebo world component, and all three paths change during the dynamic case.
 `wind_check: RUNTIME_INCOMPLETE` means data collection or cleanup failed;
 `COMPLETED_WITH_GATE_FAILURES` means the run completed but exposed a coordinate,
 source-selection, or live-update mismatch.
+
+## Sail-wrench tacking diagnostic
+
+After an armed `train_upwind_tack` trial, inspect whether the actual sail force
+creates opposite hull-roll moments on the two boom sides.  The plugin emits a
+rate-limited record containing boom angle, raw/applied force, center of
+pressure, lever arm, world moment, hull roll axis, and projected roll moment.
+
+```bash
+python3 -m experiments.sailboat_physics.diagnose_tacking_wrench \
+  --trial-dir "$TRIAL_DIR" \
+  --require-pass
+```
+
+Inspect `physics_diagnostics/sail_wrench_summary.json` and
+`physics_diagnostics/sail_wrench_samples.csv`.  The diagnostic passes only
+when both boom sides contain active-force samples, the logged wrench agrees
+with `lever x force`, and the mean applied roll moment reverses sign between
+the two sides.  A failed sign-reversal gate isolates the problem to the sail
+force direction or application geometry; a passed gate with one-sided vehicle
+roll points downstream to hull/hydrodynamic response instead.
+
+## Rudder command / hydrodynamic response diagnostic
+
+Do not change `SERVO1_REVERSED` or the SDF rudder multiplier while diagnosing
+the steering sign. The rudder foil plugin now records the final command seen
+on the JointPositionController topic, the actual rudder angle, water force,
+lever arm, hull yaw axis and projected yaw moment. The command adapter also
+has a diagnostic override which is disabled by default and affects only the
+rudder when explicitly enabled.
+
+Start a fresh `train_upwind_tack` trial in terminal 1. Immediately after the
+vehicle arms and sail force is enabled, use terminal 2 to hold both rudder
+sides long enough to collect rate-limited force samples:
+
+```bash
+ros2 param set /sailboat_command_adapter diagnostic_rudder_command_rad 0.349066
+ros2 param set /sailboat_command_adapter diagnostic_rudder_override_enabled true
+sleep 8
+ros2 param set /sailboat_command_adapter diagnostic_rudder_command_rad -0.349066
+sleep 8
+ros2 param set /sailboat_command_adapter diagnostic_rudder_command_rad 0.0
+ros2 param set /sailboat_command_adapter diagnostic_rudder_override_enabled false
+```
+
+The default `false` value preserves normal BO and RL commands exactly. The
+override is bounded by the same rudder limits and bypasses residual mixing so
+the two diagnostic inputs remain unambiguous.
+
+After the trial exits, analyze the saved trial directory:
+
+```bash
+python3 -m experiments.sailboat_physics.diagnose_rudder_response \
+  --trial-dir "$TRIAL_DIR" \
+  --require-pass
+```
+
+Inspect `physics_diagnostics/rudder_response_summary.json` and
+`physics_diagnostics/rudder_response_samples.csv`. Passing requires:
+
+- at least three active-water samples for each command sign;
+- actual rudder angle matching the final command sign in at least 80% of
+  active samples;
+- logged moment matching `lever x force` and its yaw-axis projection;
+- mean hydrodynamic yaw moment reversing sign between the two rudder sides.
+
+Mean yaw rate and its correlation with rudder yaw moment are also reported,
+but are not pass gates because simultaneous sail and hull moments can delay or
+temporarily dominate whole-vehicle rotation. If the four gates pass, another
+servo/SDF sign flip is not justified; the next isolation target is the
+competing sail or hull moment.

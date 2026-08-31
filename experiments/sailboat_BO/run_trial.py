@@ -11,6 +11,7 @@ import shlex
 import signal
 import socket
 import subprocess
+import sys
 import threading
 import time
 import xml.etree.ElementTree as ET
@@ -51,6 +52,21 @@ except ImportError:
         compute_constraints,
         compute_metrics,
         compute_objective,
+    )
+
+try:
+    from experiments.sailboat_physics.frames import (
+        gazebo_quaternion_to_frd_attitude_deg,
+    )
+except ModuleNotFoundError:
+    # ``python3 experiments/sailboat_BO/run_trial.py`` starts with only this
+    # directory on sys.path. Keep that supported CLI able to reuse the same
+    # tested frame contract as the module entry point.
+    _REPO_ROOT = Path(__file__).resolve().parents[2]
+    if str(_REPO_ROOT) not in sys.path:
+        sys.path.insert(0, str(_REPO_ROOT))
+    from experiments.sailboat_physics.frames import (
+        gazebo_quaternion_to_frd_attitude_deg,
     )
 
 EARTH_RADIUS_M = 6378137.0
@@ -170,7 +186,11 @@ class TelemetryState:
 
 @dataclass
 class RosTelemetrySnapshot:
+    # Physical body-FRD roll derived from the Gazebo model quaternion.
     odom_roll_deg: float | None = None
+    # Raw Gazebo model Euler angles retained only for frame diagnostics.
+    odom_raw_roll_deg: float | None = None
+    odom_raw_pitch_deg: float | None = None
     odom_x_m: float | None = None
     odom_y_m: float | None = None
     odom_yaw_rad: float | None = None
@@ -250,22 +270,24 @@ class RosTelemetryCollector:
     def _on_odometry(self, msg: Any) -> None:
         position = msg.pose.pose.position
         orientation = msg.pose.pose.orientation
-        roll_deg = quaternion_to_roll_deg(
+        quaternion = (
             float(orientation.x),
             float(orientation.y),
             float(orientation.z),
             float(orientation.w),
         )
+        frd_attitude = gazebo_quaternion_to_frd_attitude_deg(*quaternion)
+        raw_roll_deg = quaternion_to_roll_deg(*quaternion)
+        raw_pitch_deg = quaternion_to_pitch_deg(*quaternion)
         yaw_rad = quaternion_to_yaw_rad(
-            float(orientation.x),
-            float(orientation.y),
-            float(orientation.z),
-            float(orientation.w),
+            *quaternion,
         )
         linear = msg.twist.twist.linear
         speed_mps = math.hypot(float(linear.x), float(linear.y))
         with self._lock:
-            self._snapshot.odom_roll_deg = roll_deg
+            self._snapshot.odom_roll_deg = frd_attitude.roll_deg
+            self._snapshot.odom_raw_roll_deg = raw_roll_deg
+            self._snapshot.odom_raw_pitch_deg = raw_pitch_deg
             self._snapshot.odom_x_m = float(position.x)
             self._snapshot.odom_y_m = float(position.y)
             self._snapshot.odom_yaw_rad = yaw_rad
@@ -286,6 +308,8 @@ class RosTelemetryCollector:
         with self._lock:
             return RosTelemetrySnapshot(
                 odom_roll_deg=self._snapshot.odom_roll_deg,
+                odom_raw_roll_deg=self._snapshot.odom_raw_roll_deg,
+                odom_raw_pitch_deg=self._snapshot.odom_raw_pitch_deg,
                 odom_x_m=self._snapshot.odom_x_m,
                 odom_y_m=self._snapshot.odom_y_m,
                 odom_yaw_rad=self._snapshot.odom_yaw_rad,
@@ -460,6 +484,8 @@ def ros_roll_topic_requirements(context: TrialContext) -> tuple[bool, bool]:
         roll_source == "gazebo_odometry"
         or selected_position_source(context) == "gazebo_odometry"
         or "roll_gz_odom_deg" in csv_fields
+        or "roll_gz_odom_raw_deg" in csv_fields
+        or "pitch_gz_odom_raw_deg" in csv_fields
         or "x_gz_odom_m" in csv_fields
         or "y_gz_odom_m" in csv_fields
         or "yaw_gz_odom_rad" in csv_fields
@@ -473,6 +499,11 @@ def quaternion_to_roll_deg(x: float, y: float, z: float, w: float) -> float:
     sinr_cosp = 2.0 * (w * x + y * z)
     cosr_cosp = 1.0 - 2.0 * (x * x + y * y)
     return math.degrees(math.atan2(sinr_cosp, cosr_cosp))
+
+
+def quaternion_to_pitch_deg(x: float, y: float, z: float, w: float) -> float:
+    sinp = 2.0 * (w * y - z * x)
+    return math.degrees(math.asin(max(-1.0, min(1.0, sinp))))
 
 
 def quaternion_to_yaw_rad(x: float, y: float, z: float, w: float) -> float:
@@ -1458,8 +1489,9 @@ def mission_xy_to_enu(frame: str, x_m: float, y_m: float) -> tuple[float, float]
     if frame == "local_enu_m":
         return x_m, y_m
     if frame == "gazebo_xy_m":
-        # ArduPilotPlugin maps Gazebo X to NED north and Gazebo -Y to NED east.
-        return -y_m, x_m
+        # The official ArduPilotPlugin transform used by this model maps the
+        # Gazebo ENU world directly: model/world X=east and Y=north.
+        return x_m, y_m
     raise ValueError(f"Unsupported mission frame '{frame}'")
 
 
@@ -1467,7 +1499,7 @@ def enu_to_mission_xy(frame: str, east_m: float, north_m: float) -> tuple[float,
     if frame == "local_enu_m":
         return east_m, north_m
     if frame == "gazebo_xy_m":
-        return north_m, -east_m
+        return east_m, north_m
     raise ValueError(f"Unsupported mission frame '{frame}'")
 
 
@@ -1503,6 +1535,21 @@ def pwm_to_surface_angle_rad(pwm: float | None, pwm_min: float, pwm_max: float, 
         return 0.0
     normalized = clip((float(pwm) - pwm_min) / (pwm_max - pwm_min), 0.0, 1.0)
     return (normalized - 0.5) * multiplier
+
+
+def pwm_to_sheet_allowance_rad(
+    pwm: float | None,
+    pwm_min: float,
+    pwm_max: float,
+    angle_min_deg: float,
+    angle_max_deg: float,
+) -> float:
+    """Map unsigned mainsheet PWM to the allowed boom-angle magnitude."""
+    if pwm is None or pwm_max <= pwm_min:
+        return 0.0
+    normalized = clip((float(pwm) - pwm_min) / (pwm_max - pwm_min), 0.0, 1.0)
+    angle_deg = angle_min_deg + normalized * (angle_max_deg - angle_min_deg)
+    return math.radians(angle_deg)
 
 
 def request_message_intervals(master: Any) -> None:
@@ -2394,10 +2441,12 @@ def update_state_from_message(
             servo_params.get("SERVO1_MIN", 1000.0),
             servo_params.get("SERVO1_MAX", 2000.0),
         )
-        state.sail_cmd_rad = pwm_to_surface_angle_rad(
+        state.sail_cmd_rad = pwm_to_sheet_allowance_rad(
             float(msg.servo2_raw),
             servo_params.get("SERVO2_MIN", 1000.0),
             servo_params.get("SERVO2_MAX", 2000.0),
+            servo_params.get("SAIL_ANGLE_MIN", 0.0),
+            servo_params.get("SAIL_ANGLE_MAX", 45.0),
         )
     elif msg_type == "NAV_CONTROLLER_OUTPUT":
         state.nav_wp_dist_m = float(msg.wp_dist)
@@ -2550,6 +2599,12 @@ def build_sample_row(
     )
     roll_mav_deg = state.roll_deg
     roll_gz_odom_deg = ros_snapshot.odom_roll_deg if ros_snapshot is not None else None
+    roll_gz_odom_raw_deg = (
+        ros_snapshot.odom_raw_roll_deg if ros_snapshot is not None else None
+    )
+    pitch_gz_odom_raw_deg = (
+        ros_snapshot.odom_raw_pitch_deg if ros_snapshot is not None else None
+    )
     roll_gz_imu_deg = ros_snapshot.imu_roll_deg if ros_snapshot is not None else None
     selected_roll_deg = {
         "mavlink": roll_mav_deg,
@@ -2580,6 +2635,12 @@ def build_sample_row(
         "roll_deg": selected_roll_deg if selected_roll_deg is not None else 0.0,
         "roll_mav_deg": roll_mav_deg if roll_mav_deg is not None else 0.0,
         "roll_gz_odom_deg": roll_gz_odom_deg if roll_gz_odom_deg is not None else 0.0,
+        "roll_gz_odom_raw_deg": (
+            roll_gz_odom_raw_deg if roll_gz_odom_raw_deg is not None else 0.0
+        ),
+        "pitch_gz_odom_raw_deg": (
+            pitch_gz_odom_raw_deg if pitch_gz_odom_raw_deg is not None else 0.0
+        ),
         "roll_gz_imu_deg": roll_gz_imu_deg if roll_gz_imu_deg is not None else 0.0,
         "roll_source_used": roll_source,
         "roll_source_valid": roll_source_valid,

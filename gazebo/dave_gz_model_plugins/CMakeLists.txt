@@ -75,6 +75,8 @@ target_link_libraries(FoilLiftDragSystem
   gz-sim${GZ_SIM_VER}::gz-sim${GZ_SIM_VER}
   gz-plugin${GZ_PLUGIN_VER}::register
   gz-math${GZ_MATH_VER}::gz-math${GZ_MATH_VER}
+  gz-msgs${GZ_MSGS_VER}::gz-msgs${GZ_MSGS_VER}
+  gz-transport${GZ_TRANSPORT_VER}::gz-transport${GZ_TRANSPORT_VER}
 )
 
 # Install targets

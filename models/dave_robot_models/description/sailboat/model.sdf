@@ -485,6 +485,9 @@
       filename="libSailLiftDragSystem.so"
       name="ioes::sim::SailLiftDragSystem">
       <sail_link>sail_link</sail_link>
+      <!-- Diagnostics project the sail wrench onto the hull's +Y roll axis. -->
+      <base_link>base_link</base_link>
+      <roll_axis>0 1 0</roll_axis>
       <wind_topic>/world/waves/wind</wind_topic>
       <enable_topic>/model/sailboat/sail_lift_drag/enable</enable_topic>
       <enabled>false</enabled>
@@ -530,6 +533,9 @@
       filename="libFoilLiftDragSystem.so"
       name="ioes::sim::FoilLiftDragSystem">
       <daggerboard_link>rudder_link</daggerboard_link>
+      <base_link>base_link</base_link>
+      <yaw_axis>0 0 1</yaw_axis>
+      <command_topic>/model/sailboat/joint/rudder_joint/cmd_pos</command_topic>
       <water_velocity>0 0 0</water_velocity>
       <fluid_density>1000.0</fluid_density>
       <area>0.30</area>
@@ -575,8 +581,9 @@
         <servo_max>2000</servo_max>
         <type>COMMAND</type>
         <cmd_topic>/model/sailboat/joint/sail_joint/base_cmd_pos</cmd_topic>
-        <offset>-0.5</offset>
-        <multiplier>1.5708</multiplier>
+        <!-- Mainsail output is an unsigned sheet allowance, not boom side. -->
+        <offset>0.0</offset>
+        <multiplier>0.7854</multiplier>
       </control>
     </plugin>
     
@@ -595,17 +602,19 @@
     </plugin>
 
     <plugin
-      filename="gz-sim-joint-position-controller-system"
-      name="gz::sim::systems::JointPositionController">
+      filename="asv_sim2-sail-position-controller-system"
+      name="gz::sim::systems::SailPositionController">
       <joint_name>sail_joint</joint_name>
       <topic>/model/sailboat/joint/sail_joint/cmd_pos</topic>
+      <!-- Unilateral sheet spring: pull inward only outside the allowance. -->
       <p_gain>30</p_gain>
       <i_gain>0</i_gain>
-      <d_gain>3</d_gain>
+      <d_gain>0</d_gain>
       <i_max>1</i_max>
       <i_min>-1</i_min>
       <cmd_max>100</cmd_max>
       <cmd_min>-100</cmd_min>
+      <initial_position>0.7854</initial_position>
     </plugin>
 
     <plugin

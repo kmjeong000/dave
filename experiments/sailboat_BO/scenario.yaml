@@ -86,6 +86,8 @@ logging:
     - roll_deg
     - roll_mav_deg
     - roll_gz_odom_deg
+    - roll_gz_odom_raw_deg
+    - pitch_gz_odom_raw_deg
     - roll_source_used
     - roll_source_valid
     - rudder_cmd_rad

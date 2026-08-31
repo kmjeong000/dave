@@ -1,7 +1,11 @@
 from __future__ import annotations
 
 import math
+import re
 import unittest
+import xml.etree.ElementTree as ET
+from pathlib import Path
+from tempfile import TemporaryDirectory
 from types import SimpleNamespace
 from unittest.mock import patch
 
@@ -108,6 +112,165 @@ def downloaded_item(
 
 
 class MissionUploadTests(unittest.TestCase):
+    def test_gazebo_xy_m_uses_standard_enu_world_axes(self):
+        self.assertEqual(
+            run_trial.mission_xy_to_enu("gazebo_xy_m", 12.5, -34.0),
+            (12.5, -34.0),
+        )
+        self.assertEqual(
+            run_trial.enu_to_mission_xy("gazebo_xy_m", 12.5, -34.0),
+            (12.5, -34.0),
+        )
+
+    def test_upwind_tack_waypoints_remain_on_gazebo_north_south_axis(self):
+        repo_root = Path(__file__).resolve().parents[3]
+        scenario = run_trial.load_yaml(
+            repo_root / "experiments" / "sailboat_BO" / "scenario.yaml"
+        )
+        upwind = next(
+            item
+            for item in scenario["scenarios"]
+            if item["id"] == "train_upwind_tack"
+        )
+        frame = upwind["mission"]["frame"]
+        waypoints = upwind["mission"]["waypoints"]
+        self.assertEqual(frame, "gazebo_xy_m")
+        self.assertEqual(waypoints, [[0, 60], [0, -60]])
+
+        home_lat, home_lon = 44.65870, -124.06556
+
+        north_lat, north_lon = run_trial.mission_xy_to_geodetic(
+            frame,
+            home_lat,
+            home_lon,
+            *waypoints[0],
+        )
+        south_lat, south_lon = run_trial.mission_xy_to_geodetic(
+            frame,
+            home_lat,
+            home_lon,
+            *waypoints[1],
+        )
+        north_east_m, north_north_m = run_trial.geodetic_to_enu(
+            home_lat,
+            home_lon,
+            north_lat,
+            north_lon,
+        )
+        south_east_m, south_north_m = run_trial.geodetic_to_enu(
+            home_lat,
+            home_lon,
+            south_lat,
+            south_lon,
+        )
+
+        self.assertAlmostEqual(north_east_m, 0.0, places=6)
+        self.assertAlmostEqual(north_north_m, 60.0, places=6)
+        self.assertAlmostEqual(south_east_m, 0.0, places=6)
+        self.assertAlmostEqual(south_north_m, -60.0, places=6)
+
+    def test_mavlink_position_round_trip_preserves_gazebo_xy(self):
+        home_lat, home_lon = 44.65870, -124.06556
+        expected_x_m, expected_y_m = 0.0, 60.0
+        lat_deg, lon_deg = run_trial.mission_xy_to_geodetic(
+            "gazebo_xy_m",
+            home_lat,
+            home_lon,
+            expected_x_m,
+            expected_y_m,
+        )
+        state = run_trial.TelemetryState()
+        message = FakeMessage(
+            "GLOBAL_POSITION_INT",
+            time_boot_ms=1000,
+            lat=int(round(lat_deg * 1e7)),
+            lon=int(round(lon_deg * 1e7)),
+            hdg=0,
+            vx=0,
+            vy=0,
+        )
+
+        run_trial.update_state_from_message(
+            state,
+            message,
+            home_lat,
+            home_lon,
+            {},
+            "gazebo_xy_m",
+        )
+
+        self.assertAlmostEqual(state.x_m, expected_x_m, delta=0.1)
+        self.assertAlmostEqual(state.y_m, expected_y_m, delta=0.1)
+
+    def test_model_sdf_uses_official_gazebo_enu_to_ned_transform(self):
+        repo_root = Path(__file__).resolve().parents[3]
+        model_sdf = (
+            repo_root
+            / "models"
+            / "dave_robot_models"
+            / "description"
+            / "sailboat"
+            / "model.sdf"
+        )
+        model_text = model_sdf.read_text(encoding="utf-8")
+        plugin_match = re.search(
+            r"<plugin\b[^>]*\bname=['\"]ArduPilotPlugin['\"][^>]*>.*?</plugin>",
+            model_text,
+            flags=re.DOTALL,
+        )
+        self.assertIsNotNone(plugin_match, "ArduPilotPlugin block is missing")
+        plugin = ET.fromstring(plugin_match.group(0))
+        transform = tuple(
+            float(value)
+            for value in plugin.findtext("gazeboXYZToNED", "").split()
+        )
+
+        self.assertEqual(len(transform), 6)
+        self.assertEqual(transform[:3], (0.0, 0.0, 0.0))
+        self.assertAlmostEqual(transform[3], math.pi, places=3)
+        self.assertAlmostEqual(transform[4], 0.0, places=6)
+        self.assertAlmostEqual(transform[5], math.pi / 2.0, places=3)
+
+        rudder_control = next(
+            control
+            for control in plugin.findall("control")
+            if control.get("channel") == "0"
+        )
+        self.assertEqual(rudder_control.findtext("jointName"), "rudder_joint")
+        self.assertAlmostEqual(
+            float(rudder_control.findtext("offset", "nan")),
+            -0.5,
+            places=6,
+        )
+        self.assertAlmostEqual(
+            float(rudder_control.findtext("multiplier", "nan")),
+            1.5708,
+            places=6,
+        )
+
+    def test_trial_param_rendering_does_not_add_rudder_servo_reversal(self):
+        repo_root = Path(__file__).resolve().parents[3]
+        base_param_file = (
+            repo_root
+            / "models"
+            / "dave_robot_models"
+            / "config"
+            / "sailboat"
+            / "ardurover.parm"
+        )
+
+        with TemporaryDirectory() as temporary_directory:
+            trial_param_file = Path(temporary_directory) / "trial.parm"
+            run_trial.write_trial_param_file(
+                base_param_file,
+                {"SAIL_NO_GO_ANGLE": 57.0},
+                trial_param_file,
+            )
+            trial_params = run_trial.read_param_map(trial_param_file)
+
+        self.assertNotIn("SERVO1_REVERSED", trial_params)
+        self.assertEqual(trial_params["SAIL_NO_GO_ANGLE"], 57.0)
+
     def test_upload_includes_home_verifies_readback_and_starts_at_seq_one(self):
         context = make_context()
         waypoints = [

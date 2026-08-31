@@ -18,6 +18,7 @@
 
 #include <algorithm>
 #include <chrono>
+#include <cmath>
 #include <memory>
 #include <string>
 #include <mutex>
@@ -39,6 +40,42 @@ T GetParam(const std::shared_ptr<const sdf::Element> &_sdf,
 double Clamp(double _value, double _min, double _max)
 {
   return std::max(_min, std::min(_max, _value));
+}
+
+struct WrenchDiagnostics
+{
+  double boomAngleRad{0.0};
+  gz::math::Vector3d cpWorld{0, 0, 0};
+  gz::math::Vector3d leverFromBaseWorld{0, 0, 0};
+  gz::math::Vector3d momentAboutBaseWorld{0, 0, 0};
+  gz::math::Vector3d rollAxisWorld{0, 0, 0};
+  double rollMomentNm{0.0};
+};
+
+WrenchDiagnostics ComputeWrenchDiagnostics(
+    const gz::math::Pose3d &_sailPose,
+    const gz::math::Pose3d &_basePose,
+    const gz::math::Vector3d &_cpLink,
+    const gz::math::Vector3d &_rollAxisBody,
+    const gz::math::Vector3d &_appliedForceWorld)
+{
+  WrenchDiagnostics diagnostics;
+  const auto relativeRotation =
+    _basePose.Rot().Inverse() * _sailPose.Rot();
+  const double relativeYaw = relativeRotation.Yaw();
+  diagnostics.boomAngleRad = std::atan2(
+    std::sin(relativeYaw), std::cos(relativeYaw));
+  diagnostics.cpWorld =
+    _sailPose.Pos() + _sailPose.Rot().RotateVector(_cpLink);
+  diagnostics.leverFromBaseWorld =
+    diagnostics.cpWorld - _basePose.Pos();
+  diagnostics.momentAboutBaseWorld =
+    diagnostics.leverFromBaseWorld.Cross(_appliedForceWorld);
+  diagnostics.rollAxisWorld =
+    _basePose.Rot().RotateVector(_rollAxisBody);
+  diagnostics.rollMomentNm =
+    diagnostics.momentAboutBaseWorld.Dot(diagnostics.rollAxisWorld);
+  return diagnostics;
 }
 }
 
@@ -84,6 +121,33 @@ public:
 
     this->link = gz::sim::Link(linkEntity);
     this->link.EnableVelocityChecks(_ecm, true);
+
+    this->baseLinkName = GetParam<std::string>(_sdf, "base_link", "base_link");
+    const gz::sim::Entity baseLinkEntity =
+      this->model.LinkByName(_ecm, this->baseLinkName);
+    if (baseLinkEntity == gz::sim::kNullEntity)
+    {
+      gzwarn << "[SailLiftDragSystem] Base link [" << this->baseLinkName
+             << "] not found. Force application will continue, but boom and "
+             << "roll-moment diagnostics will be unavailable.\n";
+    }
+    else
+    {
+      this->baseLink = gz::sim::Link(baseLinkEntity);
+    }
+
+    this->rollAxisBody =
+      GetParam<gz::math::Vector3d>(_sdf, "roll_axis", {0, 1, 0});
+    const double rollAxisLength = this->rollAxisBody.Length();
+    if (rollAxisLength <= 1e-12)
+    {
+      gzwarn << "[SailLiftDragSystem] Invalid zero <roll_axis>; using model +Y.\n";
+      this->rollAxisBody.Set(0, 1, 0);
+    }
+    else
+    {
+      this->rollAxisBody /= rollAxisLength;
+    }
 
     LiftDragParams p;
     p.fluidDensity = GetParam<double>(_sdf, "fluid_density", 1.2);
@@ -298,53 +362,54 @@ public:
     const gz::math::Vector3d freeStream = windWorld - *velOpt;
     auto result = this->modelData.Compute(freeStream, *poseOpt);
 
-    if (forceScale <= 1e-9)
-    {
-      if (this->debug && simSec - this->lastDebugTime >= this->debugPeriod)
-      {
-        this->lastDebugTime = simSec;
-        gzerr << "[SailLiftDragSystem] link=" << this->linkName
-              << " simTimeS=" << simSec
-              << " windSource=" << windSource
-              << " forceScale=" << forceScale
-              << " windWorld=" << windWorld
-              << " Vapp=" << freeStream
-              << " speed=" << result.speed
-              << " alpha_deg=" << (result.alpha * 180.0 / 3.14159265358979323846)
-              << " cl=" << result.cl
-              << " cd=" << result.cd << "\n";
-      }
-      return;
-    }
-
-    if (result.force.Length() <= 0.0)
-      return;
-
     const double rawForceN = result.force.Length();
-    result.lift = forceScale * result.lift;
-    result.drag = forceScale * result.drag;
-    result.force = forceScale * result.force;
+    const gz::math::Vector3d rawForceWorld = result.force;
+    gz::math::Vector3d appliedLift = gz::math::Vector3d::Zero;
+    gz::math::Vector3d appliedDrag = gz::math::Vector3d::Zero;
+    gz::math::Vector3d appliedForceWorld = gz::math::Vector3d::Zero;
 
     double forceLimitScale = 1.0;
-    const double scaledForceN = result.force.Length();
-    if (this->maxForceN > 0.0 && scaledForceN > this->maxForceN)
+    if (forceScale > 1e-9 && rawForceN > 0.0)
     {
-      forceLimitScale = this->maxForceN / scaledForceN;
-      result.lift = forceLimitScale * result.lift;
-      result.drag = forceLimitScale * result.drag;
-      result.force = forceLimitScale * result.force;
-    }
+      appliedLift = forceScale * result.lift;
+      appliedDrag = forceScale * result.drag;
+      appliedForceWorld = forceScale * rawForceWorld;
 
-    // Apply force at the center of pressure. The offset is in the link frame.
-    this->link.AddWorldWrench(
-      _ecm, result.force, gz::math::Vector3d::Zero, this->modelData.Params().cp);
+      const double scaledForceN = appliedForceWorld.Length();
+      if (this->maxForceN > 0.0 && scaledForceN > this->maxForceN)
+      {
+        forceLimitScale = this->maxForceN / scaledForceN;
+        appliedLift *= forceLimitScale;
+        appliedDrag *= forceLimitScale;
+        appliedForceWorld *= forceLimitScale;
+      }
+    }
 
     if (this->debug)
     {
       if (simSec - this->lastDebugTime >= this->debugPeriod)
       {
         this->lastDebugTime = simSec;
-        gzmsg << "[SailLiftDragSystem] link=" << this->linkName
+        bool wrenchDiagnosticsValid = false;
+        WrenchDiagnostics wrenchDiagnostics;
+        if (this->baseLink.Entity() != gz::sim::kNullEntity)
+        {
+          const auto basePoseOpt = this->baseLink.WorldPose(_ecm);
+          if (basePoseOpt)
+          {
+            wrenchDiagnostics = ComputeWrenchDiagnostics(
+              *poseOpt,
+              *basePoseOpt,
+              this->modelData.Params().cp,
+              this->rollAxisBody,
+              appliedForceWorld);
+            wrenchDiagnosticsValid = true;
+          }
+        }
+
+        // Use gzerr for diagnostic visibility with the project's default
+        // Gazebo verbose=0 launch setting.  This is rate limited above.
+        gzerr << "[SailLiftDragSystem] link=" << this->linkName
               << " simTimeS=" << simSec
               << " windSource=" << windSource
               << " forceScale=" << forceScale
@@ -356,16 +421,46 @@ public:
               << " alpha_deg=" << (result.alpha * 180.0 / 3.14159265358979323846)
               << " cl=" << result.cl
               << " cd=" << result.cd
-              << " lift=" << result.lift
-              << " drag=" << result.drag
-              << " force=" << result.force << "\n";
+              << " lift=" << appliedLift
+              << " drag=" << appliedDrag
+              << " force=" << appliedForceWorld;
+        if (wrenchDiagnosticsValid)
+        {
+          gzerr << " boomAngleDeg="
+                << (wrenchDiagnostics.boomAngleRad * 180.0 / 3.14159265358979323846)
+                << " rawForceWorld=" << rawForceWorld
+                << " appliedForceWorld=" << appliedForceWorld
+                << " cpWorld=" << wrenchDiagnostics.cpWorld
+                << " leverFromBaseWorld="
+                << wrenchDiagnostics.leverFromBaseWorld
+                << " momentAboutBaseWorld="
+                << wrenchDiagnostics.momentAboutBaseWorld
+                << " rollAxisWorld=" << wrenchDiagnostics.rollAxisWorld
+                << " rollMomentNm=" << wrenchDiagnostics.rollMomentNm;
+        }
+        else
+        {
+          gzerr << " wrenchDiagnosticsValid=false";
+        }
+        gzerr << "\n";
       }
     }
+
+    if (forceScale <= 1e-9 || appliedForceWorld.Length() <= 0.0)
+      return;
+
+    // Apply force at the center of pressure. The offset is in the link frame.
+    this->link.AddWorldWrench(
+      _ecm,
+      appliedForceWorld,
+      gz::math::Vector3d::Zero,
+      this->modelData.Params().cp);
   }
 
 private:
   gz::sim::Model model{gz::sim::kNullEntity};
   gz::sim::Link link{gz::sim::kNullEntity};
+  gz::sim::Link baseLink{gz::sim::kNullEntity};
   gz::sim::Entity windEntity{gz::sim::kNullEntity};
   gz::transport::Node node;
   std::mutex windMutex;
@@ -373,7 +468,9 @@ private:
   std::string windTopic;
   std::string enableTopic;
   std::string linkName;
+  std::string baseLinkName;
   LiftDragModel modelData;
+  gz::math::Vector3d rollAxisBody{0, 1, 0};
   gz::math::Vector3d windVelocityWorld{0, 0, 0};
   bool windTopicReceived{false};
   bool targetForceEnabled{true};
