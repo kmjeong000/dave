@@ -1340,6 +1340,111 @@ def sail_force_gate_enabled(context: TrialContext) -> bool:
     return bool(context.study_cfg.get("sail_force_gate_during_startup", True))
 
 
+def startup_state_hold_enabled(context: TrialContext) -> bool:
+    return bool(context.study_cfg.get("startup_state_hold_during_prearm", True))
+
+
+def startup_state_hold_topic(context: TrialContext) -> str:
+    configured = str(context.study_cfg.get("startup_state_hold_topic", "")).strip()
+    if configured:
+        return configured
+    namespace = (
+        str(context.study_cfg.get("namespace", "sailboat")).strip("/")
+        or "sailboat"
+    )
+    return f"/model/{namespace}/startup_hold"
+
+
+def publish_startup_state_held(
+    context: TrialContext,
+    execution: ExecutionConfig,
+    held: bool,
+    *,
+    reason: str,
+) -> None:
+    """Publish the pre-mission model hold state.
+
+    Unlike the optional sail-force gate, a configured startup hold is a trial
+    lifecycle requirement. A failed release would leave the boat frozen, so a
+    publish error aborts the trial instead of silently producing invalid data.
+    """
+    if not startup_state_hold_enabled(context):
+        return
+
+    topic = startup_state_hold_topic(context)
+    if held:
+        repeats = int(context.study_cfg.get("startup_state_hold_repeats", 8))
+        interval_s = float(
+            context.study_cfg.get("startup_state_hold_repeat_interval_s", 0.25)
+        )
+    else:
+        repeats = int(context.study_cfg.get("startup_state_release_repeats", 3))
+        interval_s = float(
+            context.study_cfg.get("startup_state_release_repeat_interval_s", 0.15)
+        )
+    repeats = max(1, repeats)
+    interval_s = max(0.0, interval_s)
+
+    gz_cmd = [
+        "gz",
+        "topic",
+        "-t",
+        topic,
+        "-m",
+        "gz.msgs.Boolean",
+        "-p",
+        f"data: {'true' if held else 'false'}",
+    ]
+    shell_cmd = " ".join(shlex.quote(part) for part in gz_cmd)
+    if execution.backend == "docker-exec":
+        if not execution.docker_container:
+            raise RuntimeError(
+                "cannot publish startup state hold without docker_container"
+            )
+        cmd = [
+            "docker",
+            "exec",
+            "-i",
+            execution.docker_container,
+            "bash",
+            "-lc",
+            shell_cmd,
+        ]
+    else:
+        cmd = ["bash", "-lc", shell_cmd]
+
+    last_result: subprocess.CompletedProcess[str] | None = None
+    for attempt_idx in range(repeats):
+        try:
+            last_result = subprocess.run(
+                cmd,
+                check=False,
+                capture_output=True,
+                text=True,
+                timeout=5.0,
+            )
+        except Exception as exc:
+            raise RuntimeError(
+                "failed to publish startup state hold: "
+                f"held={held}, reason={reason}, topic={topic}, error={exc}"
+            ) from exc
+        if attempt_idx < repeats - 1 and interval_s > 0.0:
+            time.sleep(interval_s)
+
+    if last_result is not None and last_result.returncode != 0:
+        stderr = (last_result.stderr or "").strip()
+        raise RuntimeError(
+            "startup state hold publish returned non-zero: "
+            f"held={held}, reason={reason}, topic={topic}, "
+            f"rc={last_result.returncode}, stderr={stderr}"
+        )
+
+    print(
+        "[run_trial] startup state hold: "
+        f"held={str(held).lower()}, reason={reason}, topic={topic}, repeats={repeats}"
+    )
+
+
 def sail_force_enable_topic(context: TrialContext) -> str:
     configured = str(context.study_cfg.get("sail_force_enable_topic", "")).strip()
     if configured:
@@ -1418,6 +1523,30 @@ def publish_sail_force_enabled(
         "[run_trial] sail force gate: "
         f"enabled={str(enabled).lower()}, reason={reason}, topic={topic}, repeats={repeats}"
     )
+
+
+def start_navigation_physics(
+    context: TrialContext,
+    execution: ExecutionConfig,
+) -> None:
+    """Release the deterministic startup state, then enable sail force."""
+    publish_startup_state_held(
+        context,
+        execution,
+        False,
+        reason="armed_auto",
+    )
+    if startup_state_hold_enabled(context):
+        release_settle_s = float(
+            context.study_cfg.get("startup_state_release_settle_s", 0.2)
+        )
+        if release_settle_s > 0.0:
+            time.sleep(release_settle_s)
+
+    publish_sail_force_enabled(context, execution, True, reason="armed_auto")
+    enable_settle_s = float(context.study_cfg.get("sail_force_enable_settle_s", 0.5))
+    if enable_settle_s > 0.0:
+        time.sleep(enable_settle_s)
 
 
 def require_pymavlink() -> Any:
@@ -3335,6 +3464,7 @@ def run_live_trial(
         print(f"[run_trial] launch stdout: {context.files.logs_dir / 'launch.stdout.log'}")
         print(f"[run_trial] launch stderr: {context.files.logs_dir / 'launch.stderr.log'}")
         process = start_launch_process(context, launch_plan)
+        publish_startup_state_held(context, execution, True, reason="startup_prearm")
         publish_sail_force_enabled(context, execution, False, reason="startup_prearm")
         if ros_roll_collection_required(context):
             use_odom, use_imu = ros_roll_topic_requirements(context)
@@ -3355,10 +3485,7 @@ def run_live_trial(
         mission_waypoints = build_mission_waypoints(context)
         upload_mission(master, context, mission_waypoints)
         arm_and_set_auto(master, context)
-        publish_sail_force_enabled(context, execution, True, reason="armed_auto")
-        enable_settle_s = float(context.study_cfg.get("sail_force_enable_settle_s", 0.5))
-        if enable_settle_s > 0.0:
-            time.sleep(enable_settle_s)
+        start_navigation_physics(context, execution)
         write_json_marker(
             lifecycle_ready_file,
             {

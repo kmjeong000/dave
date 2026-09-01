@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import math
-import re
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
@@ -11,51 +10,14 @@ from experiments.sailboat_BO.run_trial import (
     pwm_to_sheet_allowance_rad,
     read_param_map,
 )
+from experiments.sailboat_physics.tests.sdf_test_utils import (
+    parse_sdf_with_extensions,
+)
 
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 PARAM_FILE = REPO_ROOT / "models/dave_robot_models/config/sailboat/ardurover.parm"
 MODEL_FILE = REPO_ROOT / "models/dave_robot_models/description/sailboat/model.sdf"
-
-
-def _parse_sdf(path: Path) -> ET.Element:
-    """Parse SDF while preserving vendor-prefixed extension elements.
-
-    Gazebo SDF files may use extension QNames such as ``gz:type`` without an
-    XML namespace declaration.  sdformat accepts those extensions, whereas
-    Python's strict ElementTree parser requires every prefix to be bound.  Add
-    in-memory namespace declarations for all referenced, undeclared prefixes;
-    the source model is left untouched and all contract assertions still read
-    their values from the model itself.
-    """
-    text = path.read_text(encoding="utf-8")
-    declared_prefixes = set(
-        re.findall(r"\sxmlns:([A-Za-z_][\w.-]*)\s*=", text)
-    )
-    element_prefixes = set(
-        re.findall(r"</?([A-Za-z_][\w.-]*):[A-Za-z_][\w.-]*(?=[\s>/])", text)
-    )
-    attribute_prefixes = set(
-        re.findall(r"\s([A-Za-z_][\w.-]*):[A-Za-z_][\w.-]*\s*=", text)
-    )
-    referenced_prefixes = (element_prefixes | attribute_prefixes) - {"xml", "xmlns"}
-    missing_prefixes = sorted(referenced_prefixes - declared_prefixes)
-
-    if missing_prefixes:
-        declarations = "".join(
-            f' xmlns:{prefix}="urn:sdf-extension:{prefix}"'
-            for prefix in missing_prefixes
-        )
-        text, replacement_count = re.subn(
-            r"<sdf(?=[\s>])",
-            f"<sdf{declarations}",
-            text,
-            count=1,
-        )
-        if replacement_count != 1:
-            raise ValueError(f"SDF root element not found in {path}")
-
-    return ET.fromstring(text)
 
 
 def _plugins(root: ET.Element, name: str) -> list[ET.Element]:
@@ -64,7 +26,7 @@ def _plugins(root: ET.Element, name: str) -> list[ET.Element]:
 
 def test_sheet_range_matches_sail_joint_hard_limit():
     params = read_param_map(PARAM_FILE)
-    root = _parse_sdf(MODEL_FILE)
+    root = parse_sdf_with_extensions(MODEL_FILE)
     sail_joint = root.find(".//joint[@name='sail_joint']")
 
     assert sail_joint is not None
@@ -77,7 +39,7 @@ def test_sheet_range_matches_sail_joint_hard_limit():
 
 
 def test_ardupilot_mainsail_channel_outputs_unsigned_allowance():
-    root = _parse_sdf(MODEL_FILE)
+    root = parse_sdf_with_extensions(MODEL_FILE)
     control = root.find(".//plugin[@name='ArduPilotPlugin']/control[@channel='1']")
 
     assert control is not None
@@ -87,7 +49,7 @@ def test_ardupilot_mainsail_channel_outputs_unsigned_allowance():
 
 
 def test_sail_uses_unilateral_asv_controller_not_generic_position_controller():
-    root = _parse_sdf(MODEL_FILE)
+    root = parse_sdf_with_extensions(MODEL_FILE)
     sail_controllers = _plugins(root, "gz::sim::systems::SailPositionController")
 
     assert len(sail_controllers) == 1
@@ -111,7 +73,7 @@ def test_sail_uses_unilateral_asv_controller_not_generic_position_controller():
 
 
 def test_sail_wrench_diagnostics_use_hull_roll_axis():
-    root = _parse_sdf(MODEL_FILE)
+    root = parse_sdf_with_extensions(MODEL_FILE)
     plugin = root.find(".//plugin[@name='ioes::sim::SailLiftDragSystem']")
 
     assert plugin is not None

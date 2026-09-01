@@ -480,6 +480,17 @@
       filename="gz-sim-navsat-system"
       name="gz::sim::systems::NavSat">
     </plugin>
+
+    <!-- Keep every trial at the declared spawn state while ArduPilot performs
+         EKF/pre-arm initialization. run_trial.py releases this immediately
+         after arm/AUTO; the timeout prevents an indefinitely frozen manual run. -->
+    <plugin
+      filename="libStartupStateHoldSystem.so"
+      name="ioes::sim::StartupStateHoldSystem">
+      <hold_topic>/model/sailboat/startup_hold</hold_topic>
+      <initially_held>true</initially_held>
+      <auto_release_timeout_s>120.0</auto_release_timeout_s>
+    </plugin>
     
     <plugin
       filename="libSailLiftDragSystem.so"

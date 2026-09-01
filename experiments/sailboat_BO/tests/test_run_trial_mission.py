@@ -645,5 +645,90 @@ class MissionUploadTests(unittest.TestCase):
         mode_mock.assert_called_once_with(master, "AUTO", timeout_s=10.0)
 
 
+class StartupStateHoldTests(unittest.TestCase):
+    def test_startup_hold_topic_defaults_to_model_namespace(self):
+        context = SimpleNamespace(study_cfg={"namespace": "/test_boat/"})
+
+        self.assertTrue(run_trial.startup_state_hold_enabled(context))
+        self.assertEqual(
+            run_trial.startup_state_hold_topic(context),
+            "/model/test_boat/startup_hold",
+        )
+
+    def test_startup_hold_publish_repeats_the_requested_boolean(self):
+        context = SimpleNamespace(
+            study_cfg={
+                "namespace": "sailboat",
+                "startup_state_release_repeats": 2,
+                "startup_state_release_repeat_interval_s": 0.0,
+            }
+        )
+        execution = run_trial.ExecutionConfig(backend="local")
+        completed = SimpleNamespace(returncode=0, stderr="")
+
+        with patch.object(
+            run_trial.subprocess,
+            "run",
+            return_value=completed,
+        ) as run_mock:
+            run_trial.publish_startup_state_held(
+                context,
+                execution,
+                False,
+                reason="unit_test",
+            )
+
+        self.assertEqual(run_mock.call_count, 2)
+        command = run_mock.call_args_list[0].args[0]
+        self.assertEqual(command[:2], ["bash", "-lc"])
+        self.assertIn("/model/sailboat/startup_hold", command[-1])
+        self.assertIn("data: false", command[-1])
+
+    def test_navigation_physics_releases_hold_before_enabling_sail(self):
+        context = SimpleNamespace(
+            study_cfg={
+                "startup_state_release_settle_s": 0.2,
+                "sail_force_enable_settle_s": 0.5,
+            }
+        )
+        execution = run_trial.ExecutionConfig(backend="local")
+        events: list[tuple] = []
+
+        def record_hold(_context, _execution, held, *, reason):
+            events.append(("hold", held, reason))
+
+        def record_sail(_context, _execution, enabled, *, reason):
+            events.append(("sail", enabled, reason))
+
+        with (
+            patch.object(
+                run_trial,
+                "publish_startup_state_held",
+                side_effect=record_hold,
+            ),
+            patch.object(
+                run_trial,
+                "publish_sail_force_enabled",
+                side_effect=record_sail,
+            ),
+            patch.object(
+                run_trial.time,
+                "sleep",
+                side_effect=lambda seconds: events.append(("sleep", seconds)),
+            ),
+        ):
+            run_trial.start_navigation_physics(context, execution)
+
+        self.assertEqual(
+            events,
+            [
+                ("hold", False, "armed_auto"),
+                ("sleep", 0.2),
+                ("sail", True, "armed_auto"),
+                ("sleep", 0.5),
+            ],
+        )
+
+
 if __name__ == "__main__":
     unittest.main()

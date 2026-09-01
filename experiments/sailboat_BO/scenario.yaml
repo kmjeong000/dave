@@ -30,6 +30,13 @@ study:
   sail_force_disable_repeats: 8
   sail_force_enable_repeats: 3
   sail_force_enable_settle_s: 0.5
+  startup_state_hold_during_prearm: true
+  startup_state_hold_topic: /model/sailboat/startup_hold
+  startup_state_hold_repeats: 8
+  startup_state_hold_repeat_interval_s: 0.25
+  startup_state_release_repeats: 3
+  startup_state_release_repeat_interval_s: 0.15
+  startup_state_release_settle_s: 0.2
   execution_backend: local
   docker_container: rover-debug-shell
   container_repo_root: /home/docker/sailboat_ws/src/dave
