@@ -90,8 +90,22 @@ logging:
     - pitch_gz_odom_raw_deg
     - roll_source_used
     - roll_source_valid
+    - servo_output_valid
+    - servo_output_update_count
+    - servo1_raw_pwm
+    - servo2_raw_pwm
     - rudder_cmd_rad
     - sail_cmd_rad
+    - servo2_at_min
+    - servo2_at_min_continuous_s
+    - servo2_entered_min_this_sample
+    - servo2_recovered_this_sample
+    - mavlink_wind_valid
+    - mavlink_wind_update_count
+    - mavlink_wind_direction_deg
+    - mavlink_wind_from_direction_rad
+    - mavlink_wind_speed_mps
+    - mavlink_wind_speed_z_mps
     - mission_seq_raw
     - mission_reached_raw
     - mission_reached_valid

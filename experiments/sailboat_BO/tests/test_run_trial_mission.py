@@ -34,6 +34,7 @@ class FakeMavlink:
     MAV_FRAME_GLOBAL_RELATIVE_ALT_INT = 6
     MAV_CMD_NAV_WAYPOINT = 16
     MAV_CMD_DO_SET_MISSION_CURRENT = 224
+    MAV_CMD_SET_MESSAGE_INTERVAL = 511
     enums = {}
 
 
@@ -112,6 +113,159 @@ def downloaded_item(
 
 
 class MissionUploadTests(unittest.TestCase):
+    def test_wind_message_interval_is_requested(self):
+        master = FakeMaster()
+
+        run_trial.request_message_intervals(master)
+
+        interval_calls = master.mav.calls["command_long_send"]
+        wind_call = next(call for call in interval_calls if call[4] == 168.0)
+        self.assertEqual(wind_call[2], FakeMavlink.MAV_CMD_SET_MESSAGE_INTERVAL)
+        self.assertEqual(wind_call[5], 200000.0)
+
+    def test_servo_and_mavlink_wind_messages_preserve_raw_diagnostics(self):
+        state = run_trial.TelemetryState()
+        servo_params = {
+            "SERVO1_MIN": 1000.0,
+            "SERVO1_MAX": 2000.0,
+            "SERVO2_MIN": 1000.0,
+            "SERVO2_MAX": 2000.0,
+            "SAIL_ANGLE_MIN": 0.0,
+            "SAIL_ANGLE_MAX": 45.0,
+        }
+
+        run_trial.update_state_from_message(
+            state,
+            FakeMessage("SERVO_OUTPUT_RAW", servo1_raw=1400, servo2_raw=1000),
+            44.65870,
+            -124.06556,
+            servo_params,
+            "gazebo_xy_m",
+        )
+        run_trial.update_state_from_message(
+            state,
+            FakeMessage("WIND", direction=180.0, speed=8.25, speed_z=-0.2),
+            44.65870,
+            -124.06556,
+            servo_params,
+            "gazebo_xy_m",
+        )
+
+        self.assertEqual(state.servo1_raw_pwm, 1400.0)
+        self.assertEqual(state.servo2_raw_pwm, 1000.0)
+        self.assertEqual(state.servo_output_update_count, 1)
+        self.assertAlmostEqual(state.sail_cmd_rad, 0.0)
+        self.assertEqual(state.mavlink_wind_direction_deg, 180.0)
+        self.assertEqual(state.mavlink_wind_speed_mps, 8.25)
+        self.assertEqual(state.mavlink_wind_speed_z_mps, -0.2)
+        self.assertEqual(state.mavlink_wind_update_count, 1)
+
+    def test_sample_row_contains_servo_and_mavlink_wind_diagnostics(self):
+        context = SimpleNamespace(
+            study_cfg={"mission_seq_home_offset": True},
+            scenario_cfg={
+                "spawn": {"x_m": 0.0, "y_m": 0.0},
+                "world": {"wind_world_xyz_mps": [0.0, 8.0, 0.0]},
+            },
+            termination_cfg={
+                "position_source": "mavlink",
+                "roll_source": "mavlink",
+            },
+        )
+        state = run_trial.TelemetryState(
+            sim_time_s=10.0,
+            x_m=1.0,
+            y_m=2.0,
+            yaw_rad=0.0,
+            surge_speed_mps=1.5,
+            roll_deg=2.0,
+            servo1_raw_pwm=1400.0,
+            servo2_raw_pwm=1000.0,
+            servo_output_update_count=7,
+            rudder_cmd_rad=-0.1,
+            sail_cmd_rad=0.0,
+            mavlink_wind_direction_deg=180.0,
+            mavlink_wind_speed_mps=8.25,
+            mavlink_wind_speed_z_mps=-0.2,
+            mavlink_wind_update_count=4,
+            mission_seq=1,
+        )
+
+        sample = run_trial.build_sample_row(
+            context=context,
+            state=state,
+            mission_waypoints=[run_trial.MissionWaypoint(seq=0, x_m=0.0, y_m=60.0)],
+            ros_snapshot=None,
+            raw_waypoint_index=0,
+            effective_target_index=0,
+            waypoint_completed_count=0,
+            waypoint_capture_count=0,
+            waypoint_capture_active=False,
+        )
+
+        self.assertIsNotNone(sample)
+        self.assertTrue(sample["servo_output_valid"])
+        self.assertEqual(sample["servo2_raw_pwm"], 1000.0)
+        self.assertEqual(sample["servo_output_update_count"], 7)
+        self.assertTrue(sample["mavlink_wind_valid"])
+        self.assertEqual(sample["mavlink_wind_update_count"], 4)
+        self.assertEqual(sample["mavlink_wind_direction_deg"], 180.0)
+        self.assertAlmostEqual(sample["mavlink_wind_from_direction_rad"], -math.pi)
+        self.assertEqual(sample["mavlink_wind_speed_mps"], 8.25)
+        self.assertEqual(sample["mavlink_wind_speed_z_mps"], -0.2)
+
+    def test_sheet_minimum_diagnostic_requires_valid_near_minimum_pwm(self):
+        self.assertFalse(
+            run_trial.servo_pwm_at_minimum(
+                servo_output_valid=False,
+                servo_raw_pwm=1000.0,
+                servo_min_pwm=1000.0,
+            )
+        )
+        self.assertTrue(
+            run_trial.servo_pwm_at_minimum(
+                servo_output_valid=True,
+                servo_raw_pwm=1001.0,
+                servo_min_pwm=1000.0,
+            )
+        )
+        self.assertFalse(
+            run_trial.servo_pwm_at_minimum(
+                servo_output_valid=True,
+                servo_raw_pwm=1002.0,
+                servo_min_pwm=1000.0,
+            )
+        )
+
+    def test_scenarios_persist_servo_and_mavlink_wind_csv_fields(self):
+        repo_root = Path(__file__).resolve().parents[3]
+        required_fields = {
+            "servo_output_valid",
+            "servo_output_update_count",
+            "servo1_raw_pwm",
+            "servo2_raw_pwm",
+            "servo2_at_min",
+            "servo2_at_min_continuous_s",
+            "servo2_entered_min_this_sample",
+            "servo2_recovered_this_sample",
+            "mavlink_wind_valid",
+            "mavlink_wind_update_count",
+            "mavlink_wind_direction_deg",
+            "mavlink_wind_from_direction_rad",
+            "mavlink_wind_speed_mps",
+            "mavlink_wind_speed_z_mps",
+        }
+
+        for scenario_name in ("scenario.yaml", "scenario_generalization.yaml"):
+            config = run_trial.load_yaml(
+                repo_root / "experiments" / "sailboat_BO" / scenario_name
+            )
+            csv_fields = set(config["logging"]["csv_fields"])
+            self.assertTrue(
+                required_fields.issubset(csv_fields),
+                f"{scenario_name} is missing {sorted(required_fields - csv_fields)}",
+            )
+
     def test_gazebo_xy_m_uses_standard_enu_world_axes(self):
         self.assertEqual(
             run_trial.mission_xy_to_enu("gazebo_xy_m", 12.5, -34.0),

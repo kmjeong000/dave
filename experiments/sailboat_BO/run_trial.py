@@ -79,6 +79,7 @@ MESSAGE_INTERVAL_HZ = {
     "ATTITUDE": 10.0,
     "VFR_HUD": 10.0,
     "SERVO_OUTPUT_RAW": 10.0,
+    "WIND": 5.0,
     "NAV_CONTROLLER_OUTPUT": 10.0,
     "MISSION_CURRENT": 5.0,
     "MISSION_ITEM_REACHED": 5.0,
@@ -90,6 +91,7 @@ MESSAGE_NAME_TO_ID = {
     "ATTITUDE": 30,
     "VFR_HUD": 74,
     "SERVO_OUTPUT_RAW": 36,
+    "WIND": 168,
     "NAV_CONTROLLER_OUTPUT": 62,
     "MISSION_CURRENT": 42,
     "MISSION_ITEM_REACHED": 46,
@@ -176,8 +178,16 @@ class TelemetryState:
     heading_deg: float | None = None
     surge_speed_mps: float | None = None
     roll_deg: float | None = None
+    servo1_raw_pwm: float | None = None
+    servo2_raw_pwm: float | None = None
+    servo_output_update_count: int = 0
     rudder_cmd_rad: float | None = None
     sail_cmd_rad: float | None = None
+    # MAVLink WIND.direction is the direction the wind is coming from.
+    mavlink_wind_direction_deg: float | None = None
+    mavlink_wind_speed_mps: float | None = None
+    mavlink_wind_speed_z_mps: float | None = None
+    mavlink_wind_update_count: int = 0
     mission_seq: int = 0
     reached_seq: int = -1
     nav_wp_dist_m: float | None = None
@@ -1552,6 +1562,22 @@ def pwm_to_sheet_allowance_rad(
     return math.radians(angle_deg)
 
 
+def servo_pwm_at_minimum(
+    *,
+    servo_output_valid: bool,
+    servo_raw_pwm: float,
+    servo_min_pwm: float,
+    tolerance_pwm: float = 1.0,
+) -> bool:
+    """Return whether a valid servo output is at its configured minimum."""
+
+    return bool(
+        servo_output_valid
+        and math.isfinite(float(servo_raw_pwm))
+        and float(servo_raw_pwm) <= float(servo_min_pwm) + max(0.0, float(tolerance_pwm))
+    )
+
+
 def request_message_intervals(master: Any) -> None:
     mavlink = get_mavlink_module(master)
     for message_name, hz in MESSAGE_INTERVAL_HZ.items():
@@ -1795,6 +1821,7 @@ def advance_mission_current_to_waypoint(
                 "ATTITUDE",
                 "VFR_HUD",
                 "SERVO_OUTPUT_RAW",
+                "WIND",
                 "NAV_CONTROLLER_OUTPUT",
             ],
             blocking=True,
@@ -2436,18 +2463,26 @@ def update_state_from_message(
         if state.yaw_rad is None:
             state.yaw_rad = math.radians(state.heading_deg)
     elif msg_type == "SERVO_OUTPUT_RAW":
+        state.servo1_raw_pwm = float(msg.servo1_raw)
+        state.servo2_raw_pwm = float(msg.servo2_raw)
+        state.servo_output_update_count += 1
         state.rudder_cmd_rad = pwm_to_surface_angle_rad(
-            float(msg.servo1_raw),
+            state.servo1_raw_pwm,
             servo_params.get("SERVO1_MIN", 1000.0),
             servo_params.get("SERVO1_MAX", 2000.0),
         )
         state.sail_cmd_rad = pwm_to_sheet_allowance_rad(
-            float(msg.servo2_raw),
+            state.servo2_raw_pwm,
             servo_params.get("SERVO2_MIN", 1000.0),
             servo_params.get("SERVO2_MAX", 2000.0),
             servo_params.get("SAIL_ANGLE_MIN", 0.0),
             servo_params.get("SAIL_ANGLE_MAX", 45.0),
         )
+    elif msg_type == "WIND":
+        state.mavlink_wind_direction_deg = float(msg.direction)
+        state.mavlink_wind_speed_mps = float(msg.speed)
+        state.mavlink_wind_speed_z_mps = float(getattr(msg, "speed_z", math.nan))
+        state.mavlink_wind_update_count += 1
     elif msg_type == "NAV_CONTROLLER_OUTPUT":
         state.nav_wp_dist_m = float(msg.wp_dist)
         state.nav_xtrack_error_m = float(msg.xtrack_error)
@@ -2612,6 +2647,24 @@ def build_sample_row(
         "gazebo_imu": roll_gz_imu_deg,
     }[roll_source]
     roll_source_valid = selected_roll_deg is not None
+    servo_output_valid = bool(
+        state.servo1_raw_pwm is not None
+        and state.servo2_raw_pwm is not None
+        and math.isfinite(state.servo1_raw_pwm)
+        and math.isfinite(state.servo2_raw_pwm)
+    )
+    mavlink_wind_valid = bool(
+        state.mavlink_wind_direction_deg is not None
+        and state.mavlink_wind_speed_mps is not None
+        and math.isfinite(state.mavlink_wind_direction_deg)
+        and math.isfinite(state.mavlink_wind_speed_mps)
+        and state.mavlink_wind_speed_mps >= 0.0
+    )
+    mavlink_wind_from_direction_rad = (
+        wrap_pi(math.radians(state.mavlink_wind_direction_deg))
+        if mavlink_wind_valid and state.mavlink_wind_direction_deg is not None
+        else 0.0
+    )
 
     return {
         "sim_time_s": state.sim_time_s,
@@ -2644,8 +2697,31 @@ def build_sample_row(
         "roll_gz_imu_deg": roll_gz_imu_deg if roll_gz_imu_deg is not None else 0.0,
         "roll_source_used": roll_source,
         "roll_source_valid": roll_source_valid,
+        "servo_output_valid": servo_output_valid,
+        "servo_output_update_count": state.servo_output_update_count,
+        "servo1_raw_pwm": state.servo1_raw_pwm if state.servo1_raw_pwm is not None else 0.0,
+        "servo2_raw_pwm": state.servo2_raw_pwm if state.servo2_raw_pwm is not None else 0.0,
         "rudder_cmd_rad": state.rudder_cmd_rad if state.rudder_cmd_rad is not None else 0.0,
         "sail_cmd_rad": state.sail_cmd_rad if state.sail_cmd_rad is not None else 0.0,
+        "mavlink_wind_valid": mavlink_wind_valid,
+        "mavlink_wind_update_count": state.mavlink_wind_update_count,
+        "mavlink_wind_direction_deg": (
+            state.mavlink_wind_direction_deg
+            if state.mavlink_wind_direction_deg is not None
+            else 0.0
+        ),
+        "mavlink_wind_from_direction_rad": mavlink_wind_from_direction_rad,
+        "mavlink_wind_speed_mps": (
+            state.mavlink_wind_speed_mps
+            if state.mavlink_wind_speed_mps is not None
+            else 0.0
+        ),
+        "mavlink_wind_speed_z_mps": (
+            state.mavlink_wind_speed_z_mps
+            if state.mavlink_wind_speed_z_mps is not None
+            and math.isfinite(state.mavlink_wind_speed_z_mps)
+            else 0.0
+        ),
         "mission_seq_raw": state.mission_seq,
         "mission_reached_raw": state.reached_seq,
         "mission_reached_valid": normalized_reached_seq is not None,
@@ -2704,6 +2780,8 @@ def poll_samples(
         context.termination_cfg.get("waypoint_capture_radius_m", success_radius_m)
     )
     waypoint_capture_hold_s = float(context.termination_cfg.get("waypoint_capture_hold_s", 1.0))
+    servo2_min_pwm = float(servo_params.get("SERVO2_MIN", 1000.0))
+    servo2_min_tolerance_pwm = 1.0
 
     sim_start_s: float | None = None
     wall_start_s: float | None = None
@@ -2716,6 +2794,11 @@ def poll_samples(
     roll_violation_peak_continuous_s = 0.0
     max_abs_roll_deg_after_grace = 0.0
     no_progress_continuous_s = 0.0
+    servo2_at_min_since_s: float | None = None
+    servo2_was_at_min = False
+    servo2_min_entry_count = 0
+    servo2_min_recovery_count = 0
+    servo2_min_peak_continuous_s = 0.0
     recent_progress: deque[tuple[float, float]] = deque()
     recent_stuck_progress: deque[tuple[float, float]] = deque()
     waypoint_tracker = WaypointTracker()
@@ -2822,6 +2905,71 @@ def poll_samples(
         sample["elapsed_sim_s"] = elapsed_sim_s
         sample["elapsed_wall_s"] = elapsed_wall_s
         sample["realtime_factor"] = realtime_factor
+
+        servo2_at_min = servo_pwm_at_minimum(
+            servo_output_valid=bool(sample["servo_output_valid"]),
+            servo_raw_pwm=float(sample["servo2_raw_pwm"]),
+            servo_min_pwm=servo2_min_pwm,
+            tolerance_pwm=servo2_min_tolerance_pwm,
+        )
+        entered_servo2_min = servo2_at_min and not servo2_was_at_min
+        recovered_from_servo2_min = servo2_was_at_min and not servo2_at_min
+        if entered_servo2_min:
+            servo2_at_min_since_s = float(sample["sim_time_s"])
+            servo2_min_entry_count += 1
+            print(
+                "[run_trial] sheet command entered minimum: "
+                f"sim_time_s={float(sample['sim_time_s']):.1f}, "
+                f"elapsed_sim_s={elapsed_sim_s:.1f}, "
+                f"servo2_raw_pwm={float(sample['servo2_raw_pwm']):.1f}, "
+                f"servo_output_update_count={int(sample['servo_output_update_count'])}, "
+                f"sail_cmd_deg={math.degrees(float(sample['sail_cmd_rad'])):.2f}, "
+                f"mavlink_wind_valid={sample['mavlink_wind_valid']}, "
+                f"mavlink_wind_update_count={int(sample['mavlink_wind_update_count'])}, "
+                f"mavlink_wind_direction_deg={float(sample['mavlink_wind_direction_deg']):.2f}, "
+                f"mavlink_wind_speed_mps={float(sample['mavlink_wind_speed_mps']):.2f}"
+            )
+
+        servo2_at_min_continuous_s = 0.0
+        if servo2_at_min and servo2_at_min_since_s is not None:
+            servo2_at_min_continuous_s = max(
+                0.0,
+                float(sample["sim_time_s"]) - servo2_at_min_since_s,
+            )
+            servo2_min_peak_continuous_s = max(
+                servo2_min_peak_continuous_s,
+                servo2_at_min_continuous_s,
+            )
+        elif recovered_from_servo2_min and servo2_at_min_since_s is not None:
+            minimum_duration_s = max(
+                0.0,
+                float(sample["sim_time_s"]) - servo2_at_min_since_s,
+            )
+            servo2_min_peak_continuous_s = max(
+                servo2_min_peak_continuous_s,
+                minimum_duration_s,
+            )
+            servo2_min_recovery_count += 1
+            print(
+                "[run_trial] sheet command recovered from minimum: "
+                f"sim_time_s={float(sample['sim_time_s']):.1f}, "
+                f"elapsed_sim_s={elapsed_sim_s:.1f}, "
+                f"minimum_duration_s={minimum_duration_s:.1f}, "
+                f"servo2_raw_pwm={float(sample['servo2_raw_pwm']):.1f}, "
+                f"servo_output_update_count={int(sample['servo_output_update_count'])}, "
+                f"sail_cmd_deg={math.degrees(float(sample['sail_cmd_rad'])):.2f}, "
+                f"mavlink_wind_valid={sample['mavlink_wind_valid']}, "
+                f"mavlink_wind_update_count={int(sample['mavlink_wind_update_count'])}, "
+                f"mavlink_wind_direction_deg={float(sample['mavlink_wind_direction_deg']):.2f}, "
+                f"mavlink_wind_speed_mps={float(sample['mavlink_wind_speed_mps']):.2f}"
+            )
+            servo2_at_min_since_s = None
+
+        sample["servo2_at_min"] = servo2_at_min
+        sample["servo2_at_min_continuous_s"] = servo2_at_min_continuous_s
+        sample["servo2_entered_min_this_sample"] = entered_servo2_min
+        sample["servo2_recovered_this_sample"] = recovered_from_servo2_min
+        servo2_was_at_min = servo2_at_min
 
         roll_eligible = elapsed_sim_s >= roll_grace_period_s
         roll_over_limit = bool(sample["roll_source_valid"]) and abs(sample["roll_deg"]) > max_roll_deg
@@ -3018,6 +3166,11 @@ def poll_samples(
                 f"y_m={float(sample['y_m']):.2f}, "
                 f"position_source={sample['position_source_used']}, "
                 f"progress_ratio={float(sample['progress_ratio']):.3f}, "
+                f"servo2_raw_pwm={float(sample['servo2_raw_pwm']):.1f}, "
+                f"servo2_at_min_continuous_s={float(sample['servo2_at_min_continuous_s']):.1f}, "
+                f"mavlink_wind_valid={sample['mavlink_wind_valid']}, "
+                f"mavlink_wind_direction_deg={float(sample['mavlink_wind_direction_deg']):.2f}, "
+                f"mavlink_wind_speed_mps={float(sample['mavlink_wind_speed_mps']):.2f}, "
                 f"realtime_percent={100.0 * float(sample['realtime_factor']):.1f}"
             )
             status = "success"
@@ -3032,6 +3185,11 @@ def poll_samples(
                 f"y_m={float(sample['y_m']):.2f}, "
                 f"position_source={sample['position_source_used']}, "
                 f"progress_ratio={float(sample['progress_ratio']):.3f}, "
+                f"servo2_raw_pwm={float(sample['servo2_raw_pwm']):.1f}, "
+                f"servo2_at_min_continuous_s={float(sample['servo2_at_min_continuous_s']):.1f}, "
+                f"mavlink_wind_valid={sample['mavlink_wind_valid']}, "
+                f"mavlink_wind_direction_deg={float(sample['mavlink_wind_direction_deg']):.2f}, "
+                f"mavlink_wind_speed_mps={float(sample['mavlink_wind_speed_mps']):.2f}, "
                 f"realtime_percent={100.0 * float(sample['realtime_factor']):.1f}"
             )
             status = "failure"
@@ -3053,6 +3211,11 @@ def poll_samples(
                 f"y_m={float(sample['y_m']):.2f}, "
                 f"position_source={sample['position_source_used']}, "
                 f"progress_ratio={float(sample['progress_ratio']):.3f}, "
+                f"servo2_raw_pwm={float(sample['servo2_raw_pwm']):.1f}, "
+                f"servo2_at_min_continuous_s={float(sample['servo2_at_min_continuous_s']):.1f}, "
+                f"mavlink_wind_valid={sample['mavlink_wind_valid']}, "
+                f"mavlink_wind_direction_deg={float(sample['mavlink_wind_direction_deg']):.2f}, "
+                f"mavlink_wind_speed_mps={float(sample['mavlink_wind_speed_mps']):.2f}, "
                 f"realtime_percent={100.0 * float(sample['realtime_factor']):.1f}"
             )
             status = "failure"
@@ -3071,6 +3234,11 @@ def poll_samples(
                 f"y_m={float(sample['y_m']):.2f}, "
                 f"position_source={sample['position_source_used']}, "
                 f"progress_ratio={float(sample['progress_ratio']):.3f}, "
+                f"servo2_raw_pwm={float(sample['servo2_raw_pwm']):.1f}, "
+                f"servo2_at_min_continuous_s={float(sample['servo2_at_min_continuous_s']):.1f}, "
+                f"mavlink_wind_valid={sample['mavlink_wind_valid']}, "
+                f"mavlink_wind_direction_deg={float(sample['mavlink_wind_direction_deg']):.2f}, "
+                f"mavlink_wind_speed_mps={float(sample['mavlink_wind_speed_mps']):.2f}, "
                 f"realtime_percent={100.0 * float(sample['realtime_factor']):.1f}"
             )
             status = "failure"
@@ -3129,6 +3297,15 @@ def poll_samples(
         "roll_violation_total_s": roll_violation_total_s,
         "roll_violation_peak_continuous_s": roll_violation_peak_continuous_s,
         "max_abs_roll_deg_after_grace": max_abs_roll_deg_after_grace,
+        "servo2_min_entry_count": servo2_min_entry_count,
+        "servo2_min_recovery_count": servo2_min_recovery_count,
+        "servo2_min_peak_continuous_s": servo2_min_peak_continuous_s,
+        "servo_output_update_count": state.servo_output_update_count,
+        "mavlink_wind_update_count": state.mavlink_wind_update_count,
+        "mavlink_wind_seen": state.mavlink_wind_update_count > 0,
+        "final_servo2_raw_pwm": state.servo2_raw_pwm,
+        "final_mavlink_wind_direction_deg": state.mavlink_wind_direction_deg,
+        "final_mavlink_wind_speed_mps": state.mavlink_wind_speed_mps,
         "final_realtime_factor": final_realtime_factor,
         "mean_realtime_factor": final_realtime_factor,
         "min_realtime_factor": min_realtime_factor,
@@ -3233,6 +3410,15 @@ def empty_live_outcome(reason: str) -> dict[str, Any]:
         "roll_violation_total_s": 0.0,
         "roll_violation_peak_continuous_s": 0.0,
         "max_abs_roll_deg_after_grace": 0.0,
+        "servo2_min_entry_count": 0,
+        "servo2_min_recovery_count": 0,
+        "servo2_min_peak_continuous_s": 0.0,
+        "servo_output_update_count": 0,
+        "mavlink_wind_update_count": 0,
+        "mavlink_wind_seen": False,
+        "final_servo2_raw_pwm": None,
+        "final_mavlink_wind_direction_deg": None,
+        "final_mavlink_wind_speed_mps": None,
         "final_realtime_factor": 0.0,
         "mean_realtime_factor": 0.0,
         "min_realtime_factor": 0.0,
@@ -3287,6 +3473,18 @@ def build_metadata(
     }
     if outcome.get("exception_text"):
         metadata["exception_text"] = str(outcome["exception_text"])
+    for diagnostic_key in (
+        "servo2_min_entry_count",
+        "servo2_min_recovery_count",
+        "servo2_min_peak_continuous_s",
+        "servo_output_update_count",
+        "mavlink_wind_update_count",
+        "mavlink_wind_seen",
+        "final_servo2_raw_pwm",
+        "final_mavlink_wind_direction_deg",
+        "final_mavlink_wind_speed_mps",
+    ):
+        metadata[diagnostic_key] = outcome.get(diagnostic_key)
     return metadata
 
 
