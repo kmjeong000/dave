@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import json
+from typing import Sequence
 
 import numpy as np
 
@@ -16,7 +17,7 @@ from experiments.sailboat_RL.runtime import (
 )
 
 
-def parse_args() -> argparse.Namespace:
+def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Run automatically started and cleaned Gymnasium sailboat episodes"
     )
@@ -27,7 +28,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--scenario-id", default="eval_long_oblique")
     parser.add_argument(
         "--params-file",
-        default="experiments/sailboat_BO/verified_incumbent_params.json",
+        default="experiments/sailboat_BO/optimized_baseline_params.json",
     )
     parser.add_argument(
         "--results-dir",
@@ -61,7 +62,7 @@ def parse_args() -> argparse.Namespace:
         "--container-repo-root",
         default=DEFAULT_CONTAINER_REPO_ROOT,
     )
-    return parser.parse_args()
+    return parser.parse_args(argv)
 
 
 def main() -> int:

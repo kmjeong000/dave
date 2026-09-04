@@ -56,7 +56,9 @@ def launch_setup(context, *args, **kwargs):
                 "rudder_max_rad": 0.7854,
                 "rudder_residual_limit_rad": 0.0872664626,
                 "rudder_residual_rate_limit_rad_s": 0.1745329252,
-                "sail_min_rad": -0.7854,
+                # SERVO2/base_cmd_pos is an unsigned sheet allowance, while the
+                # boom joint itself remains free to occupy either signed side.
+                "sail_min_rad": 0.0,
                 "sail_max_rad": 0.7854,
                 "sail_residual_limit_rad": 0.0872664626,
                 "sail_residual_rate_limit_rad_s": 0.1745329252,

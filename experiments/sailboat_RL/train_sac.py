@@ -30,12 +30,12 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     )
     parser.add_argument(
         "--scenario",
-        default="experiments/sailboat_BO/scenario_generalization.yaml",
+        default="experiments/sailboat_BO/scenario_generalization_bo_eval.yaml",
     )
     parser.add_argument("--scenario-id", default="train_crosswind_straight")
     parser.add_argument(
         "--params-file",
-        default="experiments/sailboat_BO/verified_incumbent_params.json",
+        default="experiments/sailboat_BO/optimized_baseline_params.json",
         help="Frozen BO controller parameters used as the base policy",
     )
     parser.add_argument(

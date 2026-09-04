@@ -48,7 +48,10 @@ class SailboatCommandAdapter(Node):
                 ),
             },
             "sail": {
-                "min": float(self.declare_parameter("sail_min_rad", -0.7854).value),
+                # The ArduPilot mainsail channel is an unsigned sheet allowance.
+                # The physical boom may move on either side of the hull, but that
+                # side is selected by the unilateral sail controller, not here.
+                "min": float(self.declare_parameter("sail_min_rad", 0.0).value),
                 "max": float(self.declare_parameter("sail_max_rad", 0.7854).value),
                 "residual": float(
                     self.declare_parameter(

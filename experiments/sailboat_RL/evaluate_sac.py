@@ -57,7 +57,7 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--scenario-id", default="eval_long_oblique")
     parser.add_argument(
         "--params-file",
-        default="experiments/sailboat_BO/verified_incumbent_params.json",
+        default="experiments/sailboat_BO/optimized_baseline_params.json",
         help="Frozen BO controller parameters used by both controllers",
     )
     parser.add_argument("--seed", type=int, default=1000)

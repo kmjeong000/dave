@@ -33,8 +33,9 @@ def test_training_arguments_accept_short_smoke_configuration():
 def test_training_defaults_to_train_split_scenario():
     args = parse_args([])
 
-    assert args.scenario.endswith("scenario_generalization.yaml")
+    assert args.scenario.endswith("scenario_generalization_bo_eval.yaml")
     assert args.scenario_id == "train_crosswind_straight"
+    assert args.params_file.endswith("optimized_baseline_params.json")
 
 
 def test_training_scenario_rejects_holdout_split():

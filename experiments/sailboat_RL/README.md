@@ -1,7 +1,7 @@
 # Sailboat residual RL environment
 
-This package learns small rudder and sail corrections on top of the frozen BO
-controller in `experiments/sailboat_BO/verified_incumbent_params.json`.
+This package learns small rudder and sheet-allowance corrections on top of the
+frozen BO controller in `experiments/sailboat_BO/optimized_baseline_params.json`.
 
 The action is a normalized two-vector:
 
@@ -10,7 +10,10 @@ The action is a normalized two-vector:
 ```
 
 It is scaled to the command adapter's configured residual limits before being
-published. The BO command remains the base command.
+published. The BO command remains the base command. The rudder residual is a
+signed steering correction. The sail residual is a signed change to the
+unsigned sheet allowance, so the final sheet command is clamped to `[0, 45]`
+degrees; it is not a signed boom-side command.
 
 ## Runtime modes
 
@@ -80,7 +83,7 @@ automatically:
 python3 -m experiments.sailboat_RL.run_lifecycle_smoke \
   --scenario experiments/sailboat_BO/scenario.yaml \
   --scenario-id eval_long_oblique \
-  --params-file experiments/sailboat_BO/verified_incumbent_params.json \
+  --params-file experiments/sailboat_BO/optimized_baseline_params.json \
   --results-dir experiments/sailboat_RL/results/lifecycle_smoke \
   --episodes 2 \
   --max-steps-per-episode 10 \
@@ -109,9 +112,9 @@ simulation episodes, so no BO trial should already be running:
 
 ```bash
 python3 -m experiments.sailboat_RL.train_sac \
-  --scenario experiments/sailboat_BO/scenario_generalization.yaml \
+  --scenario experiments/sailboat_BO/scenario_generalization_bo_eval.yaml \
   --scenario-id train_crosswind_straight \
-  --params-file experiments/sailboat_BO/verified_incumbent_params.json \
+  --params-file experiments/sailboat_BO/optimized_baseline_params.json \
   --run-dir experiments/sailboat_RL/results/sac_env_check \
   --check-env-only \
   --execution-backend local
@@ -123,9 +126,9 @@ not intended to produce a useful policy:
 
 ```bash
 python3 -m experiments.sailboat_RL.train_sac \
-  --scenario experiments/sailboat_BO/scenario_generalization.yaml \
+  --scenario experiments/sailboat_BO/scenario_generalization_bo_eval.yaml \
   --scenario-id train_crosswind_straight \
-  --params-file experiments/sailboat_BO/verified_incumbent_params.json \
+  --params-file experiments/sailboat_BO/optimized_baseline_params.json \
   --run-dir experiments/sailboat_RL/results/sac_smoke \
   --total-timesteps 20 \
   --learning-starts 5 \
@@ -145,7 +148,7 @@ TensorBoard rollout scalars are emitted after every completed episode.
 
 ```bash
 python3 -m experiments.sailboat_RL.train_sac \
-  --scenario experiments/sailboat_BO/scenario_generalization.yaml \
+  --scenario experiments/sailboat_BO/scenario_generalization_bo_eval.yaml \
   --scenario-id train_crosswind_straight \
   --total-timesteps 10000 \
   --execution-backend local
@@ -176,9 +179,9 @@ python3 -m experiments.sailboat_RL.evaluate_sac \
   --model experiments/sailboat_RL/results/sac/<run>/models/sac_final.zip \
   --mode compare \
   --episodes 5 \
-  --scenario experiments/sailboat_BO/scenario_generalization.yaml \
+  --scenario experiments/sailboat_BO/scenario_generalization_bo_eval.yaml \
   --scenario-id eval_long_oblique \
-  --params-file experiments/sailboat_BO/verified_incumbent_params.json \
+  --params-file experiments/sailboat_BO/optimized_baseline_params.json \
   --execution-backend local
 ```
 

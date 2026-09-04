@@ -106,6 +106,12 @@ def test_policy_and_compare_modes_require_model():
     validate_evaluation_args(parse_args(["--mode", "zero"]))
 
 
+def test_evaluation_defaults_to_frozen_optimized_baseline():
+    args = parse_args(["--mode", "zero"])
+
+    assert args.params_file.endswith("optimized_baseline_params.json")
+
+
 def test_default_results_dir_is_timestamped(tmp_path):
     now = datetime(2026, 8, 25, 8, 9, 10, tzinfo=timezone.utc)
 
