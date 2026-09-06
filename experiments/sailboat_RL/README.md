@@ -99,6 +99,28 @@ Per-episode BO artifacts remain under the selected results directory. Lifecycle
 runner stdout, stderr, and coordination markers are stored under
 `<results-dir>/_lifecycle/` for startup and cleanup diagnosis.
 
+### Per-step lifecycle telemetry
+
+Each managed training, evaluation, or lifecycle-smoke trial also writes
+`rl/rl_steps.csv` inside that trial's existing BO result directory. The file is
+aligned to `env.step()` and records the normalized policy action, requested
+physical residual, observed base command, actual final adapter output, state,
+per-step reward components, and terminal reason.
+
+`residual_*_rad` is the **actual adapter contribution**
+(`final_*_rad - base_*_rad`); `requested_residual_*_rad` is the physical action
+sent by the environment. This distinction preserves rate-limit and clamp
+evidence. The recorded actuator invariant is therefore:
+
+```text
+final_rudder = clamp(base_rudder + residual_rudder, -0.7854, +0.7854)
+final_sail   = clamp(base_sail + residual_sail,       0.0,    0.7854)
+```
+
+For a driver-limited smoke run, the final sampled step is retained with
+`truncated=True, reason=environment_close`; naturally terminal trials retain
+their runner-provided terminal reason.
+
 ## SAC environment check and training
 
 `train_sac.py` uses Stable-Baselines3 SAC to learn only the bounded rudder and

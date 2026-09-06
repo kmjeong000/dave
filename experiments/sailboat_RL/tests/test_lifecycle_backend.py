@@ -161,6 +161,7 @@ def test_reset_starts_ready_runner_and_close_requests_cooperative_stop(tmp_path)
     assert state.sim_time_s == 10.0
     assert attach.reset_calls == [(7, {})]
     assert backend.current_trial_id == "fake_trial_1"
+    assert backend.current_trial_dir == tmp_path / "results" / "fake_trial_1"
     command = process_factory.commands[0]
     assert command[:3] == ["python-test", "-m", "experiments.sailboat_BO.run_trial"]
     assert command[command.index("--execution-backend") + 1] == "local"

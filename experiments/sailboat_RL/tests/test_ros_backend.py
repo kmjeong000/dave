@@ -196,3 +196,34 @@ def test_cross_track_error_matches_bo_finite_segment_metric():
     )
 
     assert backend._cross_track_error_m() == pytest.approx(expected)
+
+
+def test_state_uses_observed_final_commands_for_actual_residual():
+    backend = object.__new__(Ros2AttachBackend)
+    backend.waypoints = [(0.0, 100.0)]
+    backend.path_points = [(0.0, 0.0), (0.0, 100.0)]
+    backend.capture_radius_m = 5.0
+    backend.capture_hold_s = 1.0
+    backend._waypoint_index = 0
+    backend._within_capture_radius_since_s = None
+    backend._mission_complete = False
+    backend.wind_x_mps = 0.0
+    backend.wind_y_mps = 8.0
+    backend._pose = {
+        "sim_time_s": 10.0,
+        "x_m": 0.0,
+        "y_m": 0.0,
+        "yaw_rad": 0.0,
+        "speed_mps": 1.0,
+        "roll_deg": 0.0,
+    }
+    backend._base = {"rudder": 0.1, "sail": 0.7}
+    backend._final = {"rudder": 0.12, "sail": 0.68}
+    backend._residual = {"rudder": 0.03, "sail": -0.03}
+
+    state = backend._state()
+
+    assert state.final_rudder_rad == pytest.approx(0.12)
+    assert state.final_sail_rad == pytest.approx(0.68)
+    assert state.residual_rudder_rad == pytest.approx(0.03)
+    assert state.residual_sail_rad == pytest.approx(-0.03)

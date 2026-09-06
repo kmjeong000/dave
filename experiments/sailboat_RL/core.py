@@ -58,6 +58,11 @@ class RawState:
     mission_complete: bool = False
     termination_reason: str = ""
     termination_truncated: bool = False
+    # The command adapter's actual bounded output. Attach backends that do
+    # not observe the final actuator topics may leave these unset; managed
+    # lifecycle episodes require them before writing per-step telemetry.
+    final_rudder_rad: float | None = None
+    final_sail_rad: float | None = None
 
     @property
     def distance_to_waypoint_m(self) -> float:

@@ -162,6 +162,15 @@ class EpisodeLifecycleBackend:
         return str(self._ready_payload.get("summary_json", ""))
 
     @property
+    def current_trial_dir(self) -> Path | None:
+        """Directory of the currently managed BO trial, if one is active."""
+
+        trial_id = self.current_trial_id
+        if not trial_id:
+            return None
+        return self.config.results_dir / trial_id
+
+    @property
     def last_cleanup_error(self) -> str:
         return self._last_cleanup_error
 

@@ -106,9 +106,25 @@ class Ros2AttachBackend:
             lambda msg: self._on_base("sail", msg),
             10,
         )
+        # Observe the command adapter's real bounded outputs rather than
+        # reconstructing them from the requested residual. This preserves
+        # rate-limit and clamp evidence after a failed RL episode.
+        self._node.create_subscription(
+            Float64,
+            f"{joint_prefix}/rudder_joint/cmd_pos",
+            lambda msg: self._on_final("rudder", msg),
+            10,
+        )
+        self._node.create_subscription(
+            Float64,
+            f"{joint_prefix}/sail_joint/cmd_pos",
+            lambda msg: self._on_final("sail", msg),
+            10,
+        )
 
         self._pose: dict[str, float] | None = None
         self._base = {"rudder": None, "sail": None}
+        self._final = {"rudder": None, "sail": None}
         self._residual = {"rudder": 0.0, "sail": 0.0}
         self._waypoint_index = 0
         self._within_capture_radius_since_s: float | None = None
@@ -194,6 +210,9 @@ class Ros2AttachBackend:
     def _on_base(self, surface: str, msg: Any) -> None:
         self._base[surface] = float(msg.data)
 
+    def _on_final(self, surface: str, msg: Any) -> None:
+        self._final[surface] = float(msg.data)
+
     def _spin_until_ready(self, timeout_s: float) -> None:
         deadline = time.monotonic() + timeout_s
         while time.monotonic() < deadline:
@@ -202,10 +221,12 @@ class Ros2AttachBackend:
                 self._pose is not None
                 and self._base["rudder"] is not None
                 and self._base["sail"] is not None
+                and self._final["rudder"] is not None
+                and self._final["sail"] is not None
             ):
                 return
         raise TimeoutError(
-            "timed out waiting for odometry and BO base actuator commands"
+            "timed out waiting for odometry and adapter actuator commands"
         )
 
     def _publish_residuals(self, rudder: float, sail: float) -> None:
@@ -262,20 +283,30 @@ class Ros2AttachBackend:
             raise RuntimeError("odometry is not available")
         self._update_waypoint()
         target_x, target_y = self.waypoints[self._waypoint_index]
+        base_rudder = float(self._base["rudder"])
+        base_sail = float(self._base["sail"])
+        final_rudder = float(self._final["rudder"])
+        final_sail = float(self._final["sail"])
         return RawState(
             **self._pose,
             target_x_m=target_x,
             target_y_m=target_y,
             wind_x_mps=self.wind_x_mps,
             wind_y_mps=self.wind_y_mps,
-            base_rudder_rad=float(self._base["rudder"]),
-            base_sail_rad=float(self._base["sail"]),
+            base_rudder_rad=base_rudder,
+            base_sail_rad=base_sail,
+            # Preserve the existing observation semantics: this is the
+            # requested residual published by the environment. Per-step CSV
+            # telemetry derives the actual adapter contribution from the
+            # observed final and base commands below.
             residual_rudder_rad=self._residual["rudder"],
             residual_sail_rad=self._residual["sail"],
             cross_track_error_m=self._cross_track_error_m(),
             waypoint_index=self._waypoint_index,
             waypoint_count=len(self.waypoints),
             mission_complete=self._mission_complete,
+            final_rudder_rad=final_rudder,
+            final_sail_rad=final_sail,
         )
 
     def reset(self, *, seed: int | None, options: dict[str, Any]) -> RawState:
