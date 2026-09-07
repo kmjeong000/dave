@@ -71,6 +71,19 @@ termination:
 logging:
   sample_hz: 5
   save_rosbag2: false
+  # Offline only: this does not contribute to score.py or BO constraints.
+  # SAIL_NO_GO_ANGLE remains the frozen per-trial reference angle.
+  tack_diagnostics:
+    leg_margin_deg: 1.0
+    head_to_wind_core_margin_deg: 5.0
+    pre_leg_min_duration_s: 5.0
+    post_leg_min_duration_s: 5.0
+    pre_leg_min_distance_m: 3.0
+    post_leg_min_distance_m: 3.0
+    min_heading_change_deg: 45.0
+    candidate_timeout_s: 30.0
+    boom_deadband_deg: 5.0
+    boom_max_sample_age_s: 1.5
   csv_fields:
     - sim_time_s
     - elapsed_sim_s
@@ -84,6 +97,8 @@ logging:
     - y_gz_odom_m
     - yaw_rad
     - yaw_mav_rad
+    - mavlink_heading_valid
+    - mavlink_heading_deg
     - yaw_gz_odom_rad
     - surge_speed_mps
     - surge_speed_mav_mps
@@ -103,6 +118,12 @@ logging:
     - servo2_raw_pwm
     - rudder_cmd_rad
     - sail_cmd_rad
+    - relative_true_wind_angle_deg
+    - yaw_rate_deg_s
+    - tack_state
+    - tack_event_id
+    - actual_boom_angle_deg
+    - boom_sample_age_s
     - servo2_at_min
     - servo2_at_min_continuous_s
     - servo2_entered_min_this_sample

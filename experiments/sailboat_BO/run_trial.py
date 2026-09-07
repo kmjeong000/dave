@@ -37,6 +37,14 @@ try:
         compute_metrics,
         compute_objective,
     )
+    from .tacking import (
+        BoomObservation,
+        TackDetectorConfig,
+        attach_boom_observations,
+        detect_tack_events,
+        write_tack_events_csv,
+        write_tack_summary_json,
+    )
 except ImportError:
     from common import (
         DEFAULT_PARAMS_PATH,
@@ -53,11 +61,20 @@ except ImportError:
         compute_metrics,
         compute_objective,
     )
+    from tacking import (
+        BoomObservation,
+        TackDetectorConfig,
+        attach_boom_observations,
+        detect_tack_events,
+        write_tack_events_csv,
+        write_tack_summary_json,
+    )
 
 try:
     from experiments.sailboat_physics.frames import (
         gazebo_quaternion_to_frd_attitude_deg,
     )
+    from experiments.sailboat_physics.tacking_wrench import parse_sail_wrench
 except ModuleNotFoundError:
     # ``python3 experiments/sailboat_BO/run_trial.py`` starts with only this
     # directory on sys.path. Keep that supported CLI able to reuse the same
@@ -68,6 +85,7 @@ except ModuleNotFoundError:
     from experiments.sailboat_physics.frames import (
         gazebo_quaternion_to_frd_attitude_deg,
     )
+    from experiments.sailboat_physics.tacking_wrench import parse_sail_wrench
 
 EARTH_RADIUS_M = 6378137.0
 REQUEST_RETRIES = 5
@@ -110,6 +128,8 @@ class TrialFiles:
     param_file: Path
     world_file: Path
     samples_csv: Path
+    tack_events_csv: Path
+    tack_summary_json: Path
     summary_json: Path
 
 
@@ -834,6 +854,8 @@ def make_trial_files(results_dir: Path, world_output_dir: Path, trial_id: str) -
         param_file=trial_dir / "trial.parm",
         world_file=world_output_dir / f"{trial_id}.world",
         samples_csv=raw_dir / "samples.csv",
+        tack_events_csv=summary_dir / "tack_events.csv",
+        tack_summary_json=summary_dir / "tack_summary.json",
         summary_json=summary_dir / "summary.json",
     )
 
@@ -898,6 +920,8 @@ def write_trial_manifest(context: TrialContext) -> None:
             "param_file": str(context.files.param_file),
             "world_file": str(context.files.world_file),
             "samples_csv": str(context.files.samples_csv),
+            "tack_events_csv": str(context.files.tack_events_csv),
+            "tack_summary_json": str(context.files.tack_summary_json),
             "summary_json": str(context.files.summary_json),
         },
         "study": context.study_cfg,
@@ -2705,6 +2729,9 @@ def build_sample_row(
     requested_position_source = selected_position_source(context)
     mav_position_valid = mav_x_m is not None and mav_y_m is not None
     odom_position_valid = odom_x_m is not None and odom_y_m is not None
+    mavlink_heading_valid = bool(
+        mav_yaw_rad is not None and math.isfinite(mav_yaw_rad)
+    )
 
     if requested_position_source == "gazebo_odometry" and odom_position_valid:
         position_source_used = "gazebo_odometry"
@@ -2809,6 +2836,10 @@ def build_sample_row(
         "x_gz_odom_m": odom_x_m if odom_x_m is not None else 0.0,
         "y_gz_odom_m": odom_y_m if odom_y_m is not None else 0.0,
         "yaw_mav_rad": mav_yaw_rad if mav_yaw_rad is not None else 0.0,
+        "mavlink_heading_valid": mavlink_heading_valid,
+        "mavlink_heading_deg": (
+            math.degrees(mav_yaw_rad) if mavlink_heading_valid else 0.0
+        ),
         "yaw_gz_odom_rad": odom_yaw_rad if odom_yaw_rad is not None else 0.0,
         "surge_speed_mav_mps": mav_speed_mps if mav_speed_mps is not None else 0.0,
         "surge_speed_gz_odom_mps": odom_speed_mps if odom_speed_mps is not None else 0.0,
@@ -3627,6 +3658,45 @@ def write_samples_csv(csv_path: Path, fields: Iterable[str], samples: list[dict[
             writer.writerow({key: sample.get(key) for key in fieldnames})
 
 
+def write_tack_diagnostics(
+    context: TrialContext,
+    samples: list[dict[str, Any]],
+) -> None:
+    """Write post-trial tack evidence without changing BO scoring semantics."""
+
+    detector_config = TackDetectorConfig.from_mapping(
+        context.logging_cfg.get("tack_diagnostics"),
+        no_go_angle_deg=float(context.params.get("SAIL_NO_GO_ANGLE", 60.0)),
+    )
+    events = detect_tack_events(samples, detector_config)
+
+    # SailLiftDragSystem emits one rate-limited physical boom observation per
+    # debug period.  It is joined as supporting evidence only, never as an
+    # event-success gate, because its rate is lower than raw telemetry.
+    launch_text = ""
+    for log_name in ("launch.stdout.log", "launch.stderr.log"):
+        log_path = context.files.logs_dir / log_name
+        if log_path.exists():
+            launch_text += "\n" + log_path.read_text(encoding="utf-8", errors="replace")
+    boom_observations = [
+        BoomObservation(
+            sim_time_s=record.sim_time_s,
+            boom_angle_deg=record.boom_angle_deg,
+        )
+        for record in parse_sail_wrench(launch_text)
+    ]
+    attach_boom_observations(samples, events, boom_observations, detector_config)
+    write_tack_events_csv(context.files.tack_events_csv, events)
+    write_tack_summary_json(context.files.tack_summary_json, events, detector_config)
+    success_count = sum(1 for event in events if event.get("successful_tack"))
+    print(
+        "[run_trial] tack diagnostics: "
+        f"candidates={len(events)}, successful={success_count}, "
+        f"boom_samples={len(boom_observations)}, "
+        f"events={context.files.tack_events_csv}"
+    )
+
+
 def write_summary_json(
     context: TrialContext,
     row: dict[str, Any],
@@ -3723,6 +3793,7 @@ def main() -> int:
 
     finished_at_utc = datetime.now(timezone.utc).isoformat()
     duration_wall_s = time.monotonic() - start_monotonic
+    write_tack_diagnostics(context, samples)
     write_samples_csv(context.files.samples_csv, context.logging_cfg.get("csv_fields", []), samples)
 
     metrics = compute_metrics(

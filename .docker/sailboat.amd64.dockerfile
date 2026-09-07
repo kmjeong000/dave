@@ -48,7 +48,9 @@ RUN cd "${SAILBOAT_WS}/src/dave" && \
         experiments/sailboat_RL/tests \
         experiments/sailboat_physics/tests \
         experiments/sailboat_BO/tests/test_run_trial_frames.py \
-        experiments/sailboat_BO/tests/test_run_trial_mission.py
+        experiments/sailboat_BO/tests/test_run_trial_mission.py \
+        experiments/sailboat_BO/tests/test_score_sailing.py \
+        experiments/sailboat_BO/tests/test_tacking.py
 RUN rm -rf ${SAILBOAT_SRC_STAGING}
 
 USER root
