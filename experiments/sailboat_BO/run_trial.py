@@ -2509,13 +2509,18 @@ def attempt_arm_until_armed(
                 )
                 next_arm_attempt_s = min(next_arm_attempt_s, time.monotonic())
             continue
-        if msg_type == "COMMAND_ACK" and int(getattr(msg, "command", -1)) == int(mavlink.MAV_CMD_COMPONENT_ARM_DISARM):
-            result_code = int(getattr(msg, "result", -1))
-            arm_ack_result = (result_code, mav_result_name(mavlink, result_code))
-            print(
-                "[run_trial] arm ACK received: "
-                f"result={arm_ack_result[0]} ({arm_ack_result[1]})"
-            )
+        if msg_type == "COMMAND_ACK":
+            if int(getattr(msg, "command", -1)) == int(
+                mavlink.MAV_CMD_COMPONENT_ARM_DISARM
+            ):
+                result_code = int(getattr(msg, "result", -1))
+                arm_ack_result = (result_code, mav_result_name(mavlink, result_code))
+                print(
+                    "[run_trial] arm ACK received: "
+                    f"result={arm_ack_result[0]} ({arm_ack_result[1]})"
+                )
+            continue
+        if msg_type != "HEARTBEAT":
             continue
         last_system_state = (
             int(getattr(msg, "system_status", -1)),

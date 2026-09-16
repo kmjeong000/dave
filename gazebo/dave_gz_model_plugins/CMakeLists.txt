@@ -79,6 +79,23 @@ target_link_libraries(FoilLiftDragSystem
   gz-transport${GZ_TRANSPORT_VER}::gz-transport${GZ_TRANSPORT_VER}
 )
 
+add_library(RudderDiagnosticLoadSystem SHARED
+  src/RudderDiagnosticLoadSystem.cc
+  src/LiftDragModel.cc
+)
+
+target_include_directories(RudderDiagnosticLoadSystem PRIVATE
+  include
+)
+
+target_link_libraries(RudderDiagnosticLoadSystem
+  gz-sim${GZ_SIM_VER}::gz-sim${GZ_SIM_VER}
+  gz-plugin${GZ_PLUGIN_VER}::register
+  gz-math${GZ_MATH_VER}::gz-math${GZ_MATH_VER}
+  gz-msgs${GZ_MSGS_VER}::gz-msgs${GZ_MSGS_VER}
+  gz-transport${GZ_TRANSPORT_VER}::gz-transport${GZ_TRANSPORT_VER}
+)
+
 add_library(StartupStateHoldSystem SHARED
   src/StartupStateHoldSystem.cc
 )
@@ -97,6 +114,7 @@ install(
     OceanCurrentModelPlugin
     SailLiftDragSystem
     FoilLiftDragSystem
+    RudderDiagnosticLoadSystem
     StartupStateHoldSystem
   DESTINATION lib/${PROJECT_NAME}
 )
@@ -114,8 +132,30 @@ ament_environment_hooks(
 
 # Testing setup
 if(BUILD_TESTING)
+  find_package(ament_cmake_gtest REQUIRED)
   find_package(ament_lint_auto REQUIRED)
   ament_lint_auto_find_test_dependencies()
+
+  ament_add_gtest(test_lift_drag_model_vertical_rudder
+    test/LiftDragModelVerticalRudder_TEST.cc
+    src/LiftDragModel.cc
+  )
+  target_include_directories(test_lift_drag_model_vertical_rudder PRIVATE
+    include
+  )
+  target_link_libraries(test_lift_drag_model_vertical_rudder
+    gz-math${GZ_MATH_VER}::gz-math${GZ_MATH_VER}
+  )
+
+  ament_add_gtest(test_sail_joint_torque_diagnostics
+    test/SailJointTorqueDiagnostics_TEST.cc
+  )
+  target_include_directories(test_sail_joint_torque_diagnostics PRIVATE
+    include
+  )
+  target_link_libraries(test_sail_joint_torque_diagnostics
+    gz-math${GZ_MATH_VER}::gz-math${GZ_MATH_VER}
+  )
 endif()
 
 ament_package()

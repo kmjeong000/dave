@@ -39,6 +39,7 @@ def launch_setup(context, *args, **kwargs):
     mavros_fcu_url = LaunchConfiguration("mavros_fcu_url")
     sitl_start_delay = LaunchConfiguration("sitl_start_delay")
     mavros_start_delay = LaunchConfiguration("mavros_start_delay")
+    robot_description_file = LaunchConfiguration("robot_description_file")
 
     if world_name.perform(context) != "empty.sdf":
         world_name = LaunchConfiguration("world_name").perform(context)
@@ -132,6 +133,7 @@ def launch_setup(context, *args, **kwargs):
             "mavros_fcu_url": mavros_fcu_url,
             "sitl_start_delay": sitl_start_delay,
             "mavros_start_delay": mavros_start_delay,
+            "robot_description_file": robot_description_file,
         }.items(),
     )
 
@@ -275,6 +277,20 @@ def generate_launch_description():
             "mavros_start_delay",
             default_value="9.0",
             description="Seconds to wait before starting MAVROS",
+        ),
+        DeclareLaunchArgument(
+            "robot_description_file",
+            default_value=PathJoinSubstitution(
+                [
+                    FindPackageShare("dave_robot_models"),
+                    "description",
+                    LaunchConfiguration("namespace"),
+                    "model.sdf",
+                ]
+            ),
+            description=(
+                "Optional robot SDF path; defaults to the installed model"
+            ),
         ),
     ]
 

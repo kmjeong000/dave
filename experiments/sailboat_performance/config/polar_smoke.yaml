@@ -1,0 +1,91 @@
+study:
+  name: sailboat_single_polar_cell
+  namespace: sailboat
+  base_param_file: models/dave_robot_models/config/sailboat/ardurover.parm
+  launch_file: examples/dave_demos/launch/dave_robot.launch.py
+  world_template_dir: models/dave_worlds/worlds
+  world_output_dir: experiments/sailboat_performance/results/generated_worlds
+  home_llh: [44.65870, -124.06556, 0.0]
+  use_mavproxy: false
+  use_mavros: false
+  mavlink_endpoint: tcp:127.0.0.1:5760
+  mavlink_connect_timeout_s: 120
+  mavlink_release_timeout_s: 15
+  sitl_start_delay_s: 10
+  arm_initial_delay_s: 30
+  arm_total_timeout_s: 120
+  arm_retry_interval_s: 15
+  force_arm_timeout_s: 30
+  force_arm_fallback: true
+  gui: true
+  headless: true
+  paused: false
+  verbose: 0
+  sail_force_gate_during_startup: true
+  sail_force_enable_topic: /model/sailboat/sail_lift_drag/enable
+  sail_force_disable_repeats: 8
+  sail_force_enable_repeats: 3
+  sail_force_enable_settle_s: 0.5
+  startup_state_hold_during_prearm: true
+  startup_state_hold_topic: /model/sailboat/startup_hold
+  startup_state_hold_repeats: 8
+  startup_state_hold_repeat_interval_s: 0.25
+  startup_state_release_repeats: 3
+  startup_state_release_repeat_interval_s: 0.15
+  startup_state_release_settle_s: 0.2
+  execution_backend: local
+  docker_container: sailboat-rl-debug-shell
+  container_repo_root: /home/docker/sailboat_ws/src/dave
+
+# First vertical slice only: 8 m/s true wind, heading North, wind from East.
+condition:
+  tws_mps: 8.0
+  target_heading_deg: 0.0
+  signed_twa_deg: 90.0
+
+world:
+  template: waves_wind
+  internal_world_name: waves
+  wind_mag_noise_stddev: 0.0
+  wind_dir_noise_stddev: 0.0
+  wind_mag_sin_amp_percent: 0.0
+  wind_dir_sin_amp_deg: 0.0
+
+spawn:
+  x_m: 0.0
+  y_m: 0.0
+  z_m: 0.2
+  heading_deg: 0.0
+
+performance:
+  desired_speed_mps: 1.0
+  target_refresh_hz: 2.0
+  sample_hz: 10.0
+  telemetry_startup_timeout_s: 30.0
+  maximum_source_age_s: 0.75
+  max_sim_duration_s: 180.0
+  max_wall_duration_s: 660.0
+  measurement_duration_s: 30.0
+  minimum_measurement_samples: 285
+  maximum_roll_deg: 45.0
+  command_adapter_node: /sailboat_command_adapter
+  sail_force_ramp_s: 10.0
+  wind_settle_tolerance_mps: 0.5
+  wind_settle_hold_s: 2.0
+  wind_settle_timeout_s: 60.0
+  wind_settle_poll_s: 0.2
+  mavlink_wind_speed_tolerance_mps: 1.5
+  mavlink_wind_direction_tolerance_deg: 8.0
+  tack_detection_min_twa_deg: 20.0
+  steady_state:
+    window_s: 20.0
+    qualification_hold_s: 10.0
+    minimum_window_samples: 180
+    minimum_valid_ratio: 0.95
+    heading_rmse_max_deg: 5.0
+    heading_circular_std_max_deg: 3.0
+    speed_slope_max_mps2: 0.01
+    speed_cv_max: 0.15
+    speed_std_floor_mps: 0.03
+    roll_slope_max_deg_s: 0.1
+    roll_std_max_deg: 2.0

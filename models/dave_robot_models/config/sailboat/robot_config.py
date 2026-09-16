@@ -25,6 +25,9 @@ def launch_setup(context, *args, **kwargs):
         + [f"{joint}/ang_vel@std_msgs/msg/Float64@gz.msgs.Double" for joint in sailboat_joints]
         + [
             f"/model/{namespace}/odometry@nav_msgs/msg/Odometry@gz.msgs.Odometry",
+            # Actual signed boom position from Gazebo physics.  This is not the
+            # unsigned sheet allowance carried by sail_joint/base_cmd_pos.
+            f"/world/{world_name}/model/{namespace}/joint_state@sensor_msgs/msg/JointState[gz.msgs.Model",
             f"/model/{namespace}/pose@geometry_msgs/msg/PoseArray@gz.msgs.Pose_V",
             f"/model/{namespace}/imu@sensor_msgs/msg/Imu@gz.msgs.IMU",
             f"/model/{namespace}/magnetometer@sensor_msgs/msg/MagneticField@gz.msgs.Magnetometer",

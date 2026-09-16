@@ -57,11 +57,11 @@ def test_sail_uses_unilateral_asv_controller_not_generic_position_controller():
     assert controller.get("filename") == "asv_sim2-sail-position-controller-system"
     assert controller.findtext("joint_name") == "sail_joint"
     assert controller.findtext("topic") == "/model/sailboat/joint/sail_joint/cmd_pos"
-    assert float(controller.findtext("p_gain")) == pytest.approx(30.0)
+    assert float(controller.findtext("p_gain")) == pytest.approx(2200.0)
     assert float(controller.findtext("i_gain")) == pytest.approx(0.0)
     assert float(controller.findtext("d_gain")) == pytest.approx(0.0)
-    assert float(controller.findtext("cmd_max")) == pytest.approx(100.0)
-    assert float(controller.findtext("cmd_min")) == pytest.approx(-100.0)
+    assert float(controller.findtext("cmd_max")) == pytest.approx(120.0)
+    assert float(controller.findtext("cmd_min")) == pytest.approx(-120.0)
     assert float(controller.findtext("initial_position")) == pytest.approx(math.pi / 4, abs=1e-5)
 
     generic_sail_controllers = [
@@ -78,6 +78,10 @@ def test_sail_wrench_diagnostics_use_hull_roll_axis():
 
     assert plugin is not None
     assert plugin.findtext("sail_link") == "sail_link"
+    assert plugin.findtext("sail_joint") == "sail_joint"
+    assert plugin.findtext("sheet_command_topic") == (
+        "/model/sailboat/joint/sail_joint/cmd_pos"
+    )
     assert plugin.findtext("base_link") == "base_link"
     assert plugin.findtext("roll_axis") == "0 1 0"
     assert plugin.findtext("debug") == "true"

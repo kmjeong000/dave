@@ -496,6 +496,8 @@
       filename="libSailLiftDragSystem.so"
       name="ioes::sim::SailLiftDragSystem">
       <sail_link>sail_link</sail_link>
+      <sail_joint>sail_joint</sail_joint>
+      <sheet_command_topic>/model/sailboat/joint/sail_joint/cmd_pos</sheet_command_topic>
       <!-- Diagnostics project the sail wrench onto the hull's +Y roll axis. -->
       <base_link>base_link</base_link>
       <roll_axis>0 1 0</roll_axis>
@@ -524,6 +526,9 @@
       filename="libFoilLiftDragSystem.so"
       name="ioes::sim::FoilLiftDragSystem">
       <daggerboard_link>daggerboard_link</daggerboard_link>
+      <!-- Read-only hull yaw-moment diagnostics. -->
+      <base_link>base_link</base_link>
+      <yaw_axis>0 0 1</yaw_axis>
       <water_velocity>0 0 0</water_velocity>
       <fluid_density>1000.0</fluid_density>
       <area>0.40</area>
@@ -555,9 +560,9 @@
       <alpha_stall>0.3</alpha_stall>
       <cla_stall>-0.3</cla_stall>
       <cda>0.05</cda>
-      <radial_symmetry>true</radial_symmetry>
+      <radial_symmetry>false</radial_symmetry>
       <forward>0 1 0</forward>
-      <upward>0 0 1</upward>
+      <upward>1 0 0</upward>
       <cp>0 -1.48 -0.08</cp>
       <debug>true</debug>
       <debug_period>1.0</debug_period>
@@ -618,13 +623,19 @@
       <joint_name>sail_joint</joint_name>
       <topic>/model/sailboat/joint/sail_joint/cmd_pos</topic>
       <!-- Unilateral sheet spring: pull inward only outside the allowance. -->
-      <p_gain>30</p_gain>
+      <!--
+        Authority is sized against the capped sail aerodynamic load:
+        max_force_n=120 N and sail-joint-to-CP lever arm ~=0.962 m
+        give a conservative maximum joint moment ~=115.5 Nm.
+        Kp=2200 Nm/rad reaches that authority at ~=3 deg excess.
+      -->
+      <p_gain>2200</p_gain>
       <i_gain>0</i_gain>
       <d_gain>0</d_gain>
       <i_max>1</i_max>
       <i_min>-1</i_min>
-      <cmd_max>100</cmd_max>
-      <cmd_min>-100</cmd_min>
+      <cmd_max>120</cmd_max>
+      <cmd_min>-120</cmd_min>
       <initial_position>0.7854</initial_position>
     </plugin>
 

@@ -34,7 +34,9 @@ class FakeMavlink:
     MAV_FRAME_GLOBAL_RELATIVE_ALT_INT = 6
     MAV_CMD_NAV_WAYPOINT = 16
     MAV_CMD_DO_SET_MISSION_CURRENT = 224
+    MAV_CMD_COMPONENT_ARM_DISARM = 400
     MAV_CMD_SET_MESSAGE_INTERVAL = 511
+    MAV_MODE_FLAG_SAFETY_ARMED = 128
     enums = {}
 
 
@@ -122,6 +124,95 @@ class MissionUploadTests(unittest.TestCase):
         wind_call = next(call for call in interval_calls if call[4] == 168.0)
         self.assertEqual(wind_call[2], FakeMavlink.MAV_CMD_SET_MESSAGE_INTERVAL)
         self.assertEqual(wind_call[5], 200000.0)
+
+    def test_arm_wait_ignores_unrelated_command_ack_until_armed_heartbeat(self):
+        master = FakeMaster(
+            [
+                FakeMessage(
+                    "COMMAND_ACK",
+                    command=FakeMavlink.MAV_CMD_SET_MESSAGE_INTERVAL,
+                    result=0,
+                ),
+                FakeMessage(
+                    "COMMAND_ACK",
+                    command=FakeMavlink.MAV_CMD_COMPONENT_ARM_DISARM,
+                    result=0,
+                ),
+                FakeMessage("HEARTBEAT", base_mode=0, system_status=3),
+                FakeMessage(
+                    "HEARTBEAT",
+                    base_mode=FakeMavlink.MAV_MODE_FLAG_SAFETY_ARMED,
+                    system_status=4,
+                ),
+            ]
+        )
+
+        run_trial.attempt_arm_until_armed(
+            master,
+            total_timeout_s=1.0,
+            retry_interval_s=15.0,
+            initial_delay_s=0.0,
+            force=False,
+        )
+
+        arm_calls = master.mav.calls["command_long_send"]
+        self.assertEqual(len(arm_calls), 1)
+        self.assertEqual(
+            arm_calls[0][2], FakeMavlink.MAV_CMD_COMPONENT_ARM_DISARM
+        )
+        self.assertEqual(master.messages, [])
+
+    def test_arm_wait_keeps_other_message_types_out_of_heartbeat_path(self):
+        master = FakeMaster(
+            [
+                FakeMessage("STATUSTEXT", text="EKF initialising"),
+                FakeMessage("SYS_STATUS", onboard_control_sensors_health=0),
+                FakeMessage(
+                    "HEARTBEAT",
+                    base_mode=FakeMavlink.MAV_MODE_FLAG_SAFETY_ARMED,
+                    system_status=4,
+                ),
+            ]
+        )
+
+        run_trial.attempt_arm_until_armed(
+            master,
+            total_timeout_s=1.0,
+            retry_interval_s=15.0,
+            initial_delay_s=30.0,
+            force=False,
+        )
+
+        self.assertNotIn("command_long_send", master.mav.calls)
+        self.assertEqual(master.messages, [])
+
+    def test_arm_wait_preserves_rejected_arm_ack_in_timeout_details(self):
+        master = FakeMaster(
+            [
+                FakeMessage(
+                    "COMMAND_ACK",
+                    command=FakeMavlink.MAV_CMD_COMPONENT_ARM_DISARM,
+                    result=4,
+                )
+            ]
+        )
+
+        with patch.object(
+            run_trial.time,
+            "monotonic",
+            side_effect=[0.0, 0.0, 0.0, 2.0],
+        ):
+            with self.assertRaisesRegex(
+                TimeoutError,
+                r"arm_ack=4 \(UNKNOWN_4\)",
+            ):
+                run_trial.attempt_arm_until_armed(
+                    master,
+                    total_timeout_s=1.0,
+                    retry_interval_s=15.0,
+                    initial_delay_s=0.0,
+                    force=False,
+                )
 
     def test_servo_and_mavlink_wind_messages_preserve_raw_diagnostics(self):
         state = run_trial.TelemetryState()

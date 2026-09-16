@@ -38,6 +38,7 @@ def generate_launch_description():
     mavros_fcu_url = LaunchConfiguration("mavros_fcu_url")
     sitl_start_delay = LaunchConfiguration("sitl_start_delay")
     mavros_start_delay = LaunchConfiguration("mavros_start_delay")
+    robot_description_file = LaunchConfiguration("robot_description_file")
 
     args = [
         DeclareLaunchArgument(
@@ -147,16 +148,21 @@ def generate_launch_description():
             default_value="8.0",
             description="Seconds to wait before starting MAVROS",
         ),
+        DeclareLaunchArgument(
+            "robot_description_file",
+            default_value=PathJoinSubstitution(
+                [
+                    FindPackageShare("dave_robot_models"),
+                    "description",
+                    namespace,
+                    "model.sdf",
+                ]
+            ),
+            description=(
+                "Optional robot SDF path; defaults to the installed model"
+            ),
+        ),
     ]
-
-    description_file = PathJoinSubstitution(
-        [
-            FindPackageShare("dave_robot_models"),
-            "description",
-            namespace,
-            "model.sdf",
-        ]
-    )
 
     tf2_spawner = Node(
         package="tf2_ros",
@@ -184,7 +190,7 @@ def generate_launch_description():
             "-name",
             namespace,
             "-file",
-            description_file,
+            robot_description_file,
             "-x",
             x,
             "-y",

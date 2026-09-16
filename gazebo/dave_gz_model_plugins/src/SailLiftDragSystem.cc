@@ -1,4 +1,5 @@
 #include "dave_gz_model_plugins/LiftDragModel.hh"
+#include "dave_gz_model_plugins/SailJointTorqueDiagnostics.hh"
 
 #include <gz/common/Console.hh>
 #include <gz/math/Helpers.hh>
@@ -8,15 +9,20 @@
 #include <gz/sim/Model.hh>
 #include <gz/sim/System.hh>
 #include <gz/sim/Util.hh>
+#include <gz/sim/components/JointAxis.hh>
+#include <gz/sim/components/JointForceCmd.hh>
+#include <gz/sim/components/JointPosition.hh>
 #include <gz/sim/components/LinearVelocity.hh>
 #include <gz/sim/components/LinearVelocitySeed.hh>
 #include <gz/sim/components/Wind.hh>
 #include <sdf/Element.hh>
 #include <gz/transport/Node.hh>
 #include <gz/msgs/boolean.pb.h>
+#include <gz/msgs/double.pb.h>
 #include <gz/msgs/wind.pb.h>
 
 #include <algorithm>
+#include <atomic>
 #include <chrono>
 #include <cmath>
 #include <memory>
@@ -82,7 +88,8 @@ WrenchDiagnostics ComputeWrenchDiagnostics(
 class SailLiftDragSystem:
   public gz::sim::System,
   public gz::sim::ISystemConfigure,
-  public gz::sim::ISystemPreUpdate
+  public gz::sim::ISystemPreUpdate,
+  public gz::sim::ISystemPostUpdate
 {
 public:
   void Configure(const gz::sim::Entity &_entity,
@@ -136,6 +143,16 @@ public:
       this->baseLink = gz::sim::Link(baseLinkEntity);
     }
 
+    this->sailJointName =
+      GetParam<std::string>(_sdf, "sail_joint", "sail_joint");
+    this->sailJointEntity =
+      this->model.JointByName(_ecm, this->sailJointName);
+    if (this->sailJointEntity == gz::sim::kNullEntity)
+    {
+      gzwarn << "[SailLiftDragSystem] Sail joint [" << this->sailJointName
+             << "] not found. Sail-joint torque diagnostics will be unavailable.\n";
+    }
+
     this->rollAxisBody =
       GetParam<gz::math::Vector3d>(_sdf, "roll_axis", {0, 1, 0});
     const double rollAxisLength = this->rollAxisBody.Length();
@@ -177,6 +194,8 @@ public:
       const auto modelName = this->model.Name(_ecm);
       this->enableTopic = "/model/" + modelName + "/sail_lift_drag/enable";
     }
+    this->sheetCommandTopic =
+      GetParam<std::string>(_sdf, "sheet_command_topic", "");
     this->windEntity = _ecm.EntityByComponents(gz::sim::components::Wind());
     if (this->windEntity != gz::sim::kNullEntity)
     {
@@ -235,6 +254,19 @@ public:
       }
     }
 
+    if (!this->sheetCommandTopic.empty())
+    {
+      const bool subscribed =
+        this->node.Subscribe(this->sheetCommandTopic,
+                            &SailLiftDragSystem::OnSheetCommandMsg,
+                            this);
+      if (!subscribed)
+      {
+        gzwarn << "[SailLiftDragSystem] Failed to subscribe to sheet command "
+               << "topic [" << this->sheetCommandTopic << "].\n";
+      }
+    }
+
     this->debug = GetParam<bool>(_sdf, "debug", false);
     this->debugPeriod = GetParam<double>(_sdf, "debug_period", 1.0);
 
@@ -277,6 +309,12 @@ public:
           << ", ramp_time_s=" << this->enableRampTimeS
           << ", target_force_scale=" << this->targetForceScale
           << std::endl;
+  }
+
+  void OnSheetCommandMsg(const gz::msgs::Double &_msg)
+  {
+    this->sheetAllowanceRad.store(_msg.data());
+    this->sheetAllowanceReceived.store(true);
   }
 
   double CurrentForceScale(double _simSec)
@@ -387,6 +425,12 @@ public:
 
     if (this->debug)
     {
+      this->pendingTorqueSample.valid = true;
+      this->pendingTorqueSample.simTimeS = simSec;
+      this->pendingTorqueSample.cpWorld =
+        poseOpt->Pos() + poseOpt->Rot().RotateVector(this->modelData.Params().cp);
+      this->pendingTorqueSample.appliedForceWorld = appliedForceWorld;
+
       if (simSec - this->lastDebugTime >= this->debugPeriod)
       {
         this->lastDebugTime = simSec;
@@ -457,10 +501,81 @@ public:
       this->modelData.Params().cp);
   }
 
+  void PostUpdate(const gz::sim::UpdateInfo &_info,
+                  const gz::sim::EntityComponentManager &_ecm) override
+  {
+    if (_info.paused || !this->debug || !this->pendingTorqueSample.valid ||
+        this->sailJointEntity == gz::sim::kNullEntity)
+    {
+      return;
+    }
+
+    const double simSec = std::chrono::duration<double>(_info.simTime).count();
+    if (std::abs(simSec - this->pendingTorqueSample.simTimeS) > 1e-9 ||
+        simSec - this->lastTorqueDebugTime < this->debugPeriod)
+    {
+      return;
+    }
+    this->lastTorqueDebugTime = simSec;
+
+    const auto *axisComp =
+      _ecm.Component<gz::sim::components::JointAxis>(this->sailJointEntity);
+    const auto *positionComp =
+      _ecm.Component<gz::sim::components::JointPosition>(this->sailJointEntity);
+    const auto *forceComp =
+      _ecm.Component<gz::sim::components::JointForceCmd>(this->sailJointEntity);
+    const bool jointStateValid =
+      axisComp != nullptr && positionComp != nullptr && forceComp != nullptr &&
+      !positionComp->Data().empty() && !forceComp->Data().empty();
+
+    SailJointTorqueProjection projection;
+    if (axisComp != nullptr)
+    {
+      projection = ComputeSailJointTorqueProjection(
+        this->pendingTorqueSample.cpWorld,
+        this->pendingTorqueSample.appliedForceWorld,
+        gz::sim::worldPose(this->sailJointEntity, _ecm),
+        axisComp->Data().Xyz());
+    }
+
+    gzerr << "[SailJointTorqueDiagnostic] simTimeS=" << simSec
+          << " valid="
+          << (jointStateValid && projection.valid &&
+              this->sheetAllowanceReceived.load() ? "true" : "false")
+          << " sailJointAngleRad="
+          << (positionComp != nullptr && !positionComp->Data().empty()
+                ? positionComp->Data().front() : 0.0)
+          << " sheetAllowanceRad=" << this->sheetAllowanceRad.load()
+          << " sheetAllowanceReceived="
+          << (this->sheetAllowanceReceived.load() ? "true" : "false")
+          << " controllerEffortCmdNm="
+          << (forceComp != nullptr && !forceComp->Data().empty()
+                ? forceComp->Data().front() : 0.0)
+          << " appliedForceWorld="
+          << this->pendingTorqueSample.appliedForceWorld
+          << " cpWorld=" << this->pendingTorqueSample.cpWorld
+          << " sailJointOriginWorld=" << projection.jointOriginWorld
+          << " sailJointAxisWorld=" << projection.jointAxisWorld
+          << " momentAboutSailJointWorld="
+          << projection.momentAboutJointWorld
+          << " aeroTorqueAboutSailJointNm="
+          << projection.torqueAboutJointAxisNm
+          << "\n";
+  }
+
 private:
+  struct PendingTorqueSample
+  {
+    bool valid{false};
+    double simTimeS{0.0};
+    gz::math::Vector3d cpWorld{0, 0, 0};
+    gz::math::Vector3d appliedForceWorld{0, 0, 0};
+  };
+
   gz::sim::Model model{gz::sim::kNullEntity};
   gz::sim::Link link{gz::sim::kNullEntity};
   gz::sim::Link baseLink{gz::sim::kNullEntity};
+  gz::sim::Entity sailJointEntity{gz::sim::kNullEntity};
   gz::sim::Entity windEntity{gz::sim::kNullEntity};
   gz::transport::Node node;
   std::mutex windMutex;
@@ -469,6 +584,8 @@ private:
   std::string enableTopic;
   std::string linkName;
   std::string baseLinkName;
+  std::string sailJointName;
+  std::string sheetCommandTopic;
   LiftDragModel modelData;
   gz::math::Vector3d rollAxisBody{0, 1, 0};
   gz::math::Vector3d windVelocityWorld{0, 0, 0};
@@ -482,6 +599,10 @@ private:
   bool debug{false};
   double debugPeriod{1.0};
   double lastDebugTime{-1e9};
+  double lastTorqueDebugTime{-1e9};
+  std::atomic<double> sheetAllowanceRad{0.0};
+  std::atomic<bool> sheetAllowanceReceived{false};
+  PendingTorqueSample pendingTorqueSample;
 };
 }  // namespace ioes::sim
 
@@ -489,7 +610,8 @@ GZ_ADD_PLUGIN(
   ioes::sim::SailLiftDragSystem,
   gz::sim::System,
   ioes::sim::SailLiftDragSystem::ISystemConfigure,
-  ioes::sim::SailLiftDragSystem::ISystemPreUpdate)
+  ioes::sim::SailLiftDragSystem::ISystemPreUpdate,
+  ioes::sim::SailLiftDragSystem::ISystemPostUpdate)
 
 GZ_ADD_PLUGIN_ALIAS(
   ioes::sim::SailLiftDragSystem,

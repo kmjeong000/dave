@@ -1,0 +1,86 @@
+study:
+  name: sailboat_loaded_rudder_tracking
+  namespace: sailboat
+  base_param_file: models/dave_robot_models/config/sailboat/ardurover.parm
+  launch_file: examples/dave_demos/launch/dave_robot.launch.py
+  world_template_dir: models/dave_worlds/worlds
+  world_output_dir: experiments/sailboat_performance/results/generated_worlds
+  home_llh: [44.65870, -124.06556, 0.0]
+  use_mavproxy: false
+  use_mavros: false
+  mavlink_endpoint: tcp:127.0.0.1:5760
+  mavlink_connect_timeout_s: 120
+  mavlink_release_timeout_s: 15
+  sitl_start_delay_s: 10
+  arm_initial_delay_s: 30
+  arm_total_timeout_s: 120
+  arm_retry_interval_s: 15
+  force_arm_timeout_s: 30
+  force_arm_fallback: true
+  gui: true
+  headless: true
+  paused: false
+  verbose: 0
+  sail_force_gate_during_startup: true
+  sail_force_enable_topic: /model/sailboat/sail_lift_drag/enable
+  sail_force_disable_repeats: 8
+  startup_state_hold_during_prearm: true
+  startup_state_hold_topic: /model/sailboat/startup_hold
+  startup_state_hold_repeats: 8
+  startup_state_hold_repeat_interval_s: 0.25
+  startup_state_release_repeats: 3
+  startup_state_release_repeat_interval_s: 0.15
+  startup_state_release_settle_s: 0.2
+  execution_backend: local
+  docker_container: sailboat-performance-shell
+  container_repo_root: /home/docker/sailboat_ws/src/dave
+
+world:
+  template: rudder_calm
+  internal_world_name: waves
+  wind_mag_noise_stddev: 0.0
+  wind_dir_noise_stddev: 0.0
+  wind_mag_sin_amp_percent: 0.0
+  wind_dir_sin_amp_deg: 0.0
+
+spawn:
+  x_m: 0.0
+  y_m: 0.0
+  z_m: 0.2
+  heading_deg: 0.0
+
+diagnostic:
+  command_adapter_node: /sailboat_command_adapter
+  setpoints_deg: [5.0]
+  sample_hz: 20.0
+  setpoint_hold_s: 8.0
+  steady_window_s: 2.0
+  telemetry_startup_timeout_s: 30.0
+  maximum_source_age_s: 0.75
+  maximum_wall_duration_s: 180.0
+  position_tolerance_deg: 1.0
+  maximum_steady_error_deg: 1.0
+  maximum_overshoot_deg: 2.0
+  maximum_unloaded_speed_mps: 0.25
+  pre_measurement_settle_required_s: 2.0
+  pre_measurement_settle_timeout_s: 30.0
+  joint_velocity_limit_rad_s: 3.0
+  velocity_limit_threshold_fraction: 0.99
+  maximum_velocity_limit_fraction: 0.05
+
+load:
+  type: rudder_foil_runtime_gated_world_water_velocity
+  water_velocity_world_enu_mps: [0.0, -1.0, 0.0]
+  diagnostic_flow_enable_topic: /model/sailboat/rudder_test_flow/enable
+  minimum_foil_samples: 5
+  relative_speed_tolerance_mps: 0.5
+  minimum_flow_alignment_cosine: 0.7
+  minimum_force_magnitude_n: 0.5
+  minimum_abs_yaw_moment_nm: 0.1
+  command_tolerance_deg: 0.1
+  minimum_command_match_fraction: 0.8
+  expected_yaw_moment_sign: -1
+  minimum_expected_sign_fraction: 0.8
+  maximum_sign_heading_deviation_deg: 15.0
+  wrench_sample_period_s: 0.1
+  maximum_wrench_error_nm: 0.05
