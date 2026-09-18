@@ -793,7 +793,7 @@ void HydrodynamicsPrivate::Update(const UpdateInfo & _info, EntityComponentManag
 
 //////////////////////////////////////////////////
 void HydrodynamicsPrivate::UpdatePhysics(
-  const UpdateInfo & /*_info*/, EntityComponentManager & _ecm)
+  const UpdateInfo & _info, EntityComponentManager & _ecm)
 {
 ////////// BEGIN TESTING
 #if 0
@@ -836,6 +836,12 @@ void HydrodynamicsPrivate::UpdatePhysics(
     /// \todo check the components are available and valid
     cgal::Vector3 linVelocity = waves::ToVector3(hd->link.WorldLinearVelocity(_ecm).value());
     cgal::Vector3 angVelocity = waves::ToVector3(hd->link.WorldAngularVelocity(_ecm).value());
+
+    // Read-only diagnostics: accumulate the exact world-frame
+    // hydrodynamic wrench applied across this link's collision meshes.
+    gz::math::Vector3d hydroForceWorld = gz::math::Vector3d::Zero;
+    gz::math::Vector3d hydroTorqueWorld = gz::math::Vector3d::Zero;
+
     /// \todo WorldCoGLinearVel is currently not available
     // cgal::Vector3 linVelocityCoM = waves::ToVector3(
     //     hd->link.WorldCoGLinearVel(_ecm).value());
@@ -861,6 +867,7 @@ void HydrodynamicsPrivate::UpdatePhysics(
       auto force = waves::ToGz(hd->hydrodynamics[j]->Force());
       if (force.IsFinite())
       {
+        hydroForceWorld += force;
         hd->link.AddWorldForce(_ecm, force);
       }
 
@@ -868,6 +875,7 @@ void HydrodynamicsPrivate::UpdatePhysics(
       auto torque = waves::ToGz(hd->hydrodynamics[j]->Torque());
       if (torque.IsFinite())
       {
+        hydroTorqueWorld += torque;
         hd->link.AddWorldWrench(_ecm, gz::math::Vector3d::Zero, torque);
       }
 
@@ -881,6 +889,33 @@ void HydrodynamicsPrivate::UpdatePhysics(
       // gzmsg << "SubTriCount:  " << nSubTri << "\n";
       // gzmsg << "Force:        " << force << "\n";
       // gzmsg << "Torque:       " << torque << "\n";
+    }
+
+    // Read-only hull yaw-moment diagnostic, sampled once per simulation second.
+    const auto simSecond =
+      std::chrono::duration_cast<std::chrono::seconds>(_info.simTime).count();
+    static long long lastHydroDiagSecond = -1;
+
+    if (!hd->linkMeshes.empty() && simSecond != lastHydroDiagSecond)
+    {
+      lastHydroDiagSecond = simSecond;
+
+      const double simTimeS =
+        std::chrono::duration<double>(_info.simTime).count();
+
+      const gz::math::Vector3d yawAxisWorld =
+        linkPose.Rot().RotateVector(gz::math::Vector3d(0, 0, 1));
+
+      const double yawMomentNm =
+        hydroTorqueWorld.Dot(yawAxisWorld);
+
+      gzerr << "[HydrodynamicsYawDiagnostic]"
+            << " simTimeS=" << simTimeS
+            << " forceWorld=" << hydroForceWorld
+            << " torqueWorld=" << hydroTorqueWorld
+            << " yawAxisWorld=" << yawAxisWorld
+            << " yawMomentNm=" << yawMomentNm
+            << "\n";
     }
   }
 }

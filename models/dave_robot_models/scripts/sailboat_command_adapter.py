@@ -25,6 +25,8 @@ class SailboatCommandAdapter(Node):
         residual_enabled = bool(self.declare_parameter("residual_enabled", False).value)
         self.declare_parameter("diagnostic_rudder_override_enabled", False)
         self.declare_parameter("diagnostic_rudder_command_rad", 0.0)
+        self.declare_parameter("diagnostic_sail_override_enabled", False)
+        self.declare_parameter("diagnostic_sail_allowance_rad", 0.0)
         self.base_timeout_s = float(
             self.declare_parameter("base_command_timeout_s", 0.5).value
         )
@@ -160,16 +162,29 @@ class SailboatCommandAdapter(Node):
                     elapsed_s=max(0.0, now - self.mix_times[surface]),
                 )
 
-            diagnostic_override_enabled = bool(
-                surface == "rudder"
-                and self.get_parameter(
-                    "diagnostic_rudder_override_enabled"
+            if surface == "rudder":
+                diagnostic_override_enabled = bool(
+                    self.get_parameter(
+                        "diagnostic_rudder_override_enabled"
+                    ).value
+                )
+                diagnostic_command = self.get_parameter(
+                    "diagnostic_rudder_command_rad"
                 ).value
-            )
+            else:
+                diagnostic_override_enabled = bool(
+                    self.get_parameter(
+                        "diagnostic_sail_override_enabled"
+                    ).value
+                )
+                diagnostic_command = self.get_parameter(
+                    "diagnostic_sail_allowance_rad"
+                ).value
+
             if diagnostic_override_enabled:
                 command = select_diagnostic_override(
                     base,
-                    self.get_parameter("diagnostic_rudder_command_rad").value,
+                    diagnostic_command,
                     override_enabled=True,
                     command_min=limits["min"],
                     command_max=limits["max"],
