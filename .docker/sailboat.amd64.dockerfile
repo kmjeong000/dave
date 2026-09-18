@@ -43,6 +43,16 @@ RUN python3 ${SAILBOAT_SRC_STAGING}/.docker/prepare_sailboat_workspace.py
 RUN . "/opt/ros/${ROS_DISTRO}/setup.sh" && \
     . "/opt/dave_ws/install/setup.sh" && \
     colcon build --event-handlers console_direct+
+
+# Build ocean-waves from the local sailboat source tree.
+# This ensures the runtime plugin matches the frozen experiment source,
+# instead of relying on the older plugin inherited from dave:rover.
+WORKDIR ${SAILBOAT_WS}/src/dave/gazebo/dave_gz_world_plugins/ocean-waves
+RUN . "/opt/ros/${ROS_DISTRO}/setup.sh" && \
+    . "/opt/dave_ws/install/setup.sh" && \
+    colcon build --event-handlers console_direct+
+
+WORKDIR ${SAILBOAT_WS}
 RUN cd "${SAILBOAT_WS}/src/dave" && \
     "${SAILBOAT_VENV}/bin/python3" -m pytest -q \
         experiments/sailboat_RL/tests \
