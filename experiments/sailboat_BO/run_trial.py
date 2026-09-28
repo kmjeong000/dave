@@ -433,8 +433,9 @@ def sync_waypoint_tracker(
     raw_waypoint_index: int,
     completed_waypoint_count_from_reached: int,
     waypoint_count: int,
+    allow_mavlink_progress: bool = True,
 ) -> None:
-    if waypoint_count <= 0:
+    if waypoint_count <= 0 or not allow_mavlink_progress:
         return
     tracker.completed_waypoint_count = max(
         tracker.completed_waypoint_count,
@@ -3024,6 +3025,12 @@ def poll_samples(
             raw_waypoint_index=raw_waypoint_index,
             completed_waypoint_count_from_reached=completed_from_reached,
             waypoint_count=waypoint_count,
+            # With local capture enabled, MISSION_CURRENT may advance after
+            # AR_WPNav crosses a waypoint finish line while the vessel is far
+            # outside the configured physical capture radius.  Keep raw
+            # mission progress as telemetry, but do not let it complete the
+            # independent physical waypoint tracker.
+            allow_mavlink_progress=not local_waypoint_capture,
         )
         current_effective_target_index = effective_waypoint_index(
             waypoint_count,
@@ -3276,12 +3283,14 @@ def poll_samples(
         while recent_stuck_progress and (sample["sim_time_s"] - recent_stuck_progress[0][0]) > stuck_window_s:
             recent_stuck_progress.popleft()
 
-        mavlink_reached_completion = accept_mavlink_reached_for_completion(
-            context,
-            raw_reached_seq=state.reached_seq,
-            waypoint_count=waypoint_count,
-            distance_to_wp_m=float(sample["distance_to_wp_m"]),
-        )
+        mavlink_reached_completion = False
+        if not local_waypoint_capture:
+            mavlink_reached_completion = accept_mavlink_reached_for_completion(
+                context,
+                raw_reached_seq=state.reached_seq,
+                waypoint_count=waypoint_count,
+                distance_to_wp_m=float(sample["distance_to_wp_m"]),
+            )
         if mavlink_reached_completion:
             waypoint_tracker.completed_waypoint_count = max(
                 waypoint_tracker.completed_waypoint_count,

@@ -54,47 +54,75 @@ void PrintResult(
             << ", " << _result.force.Y()
             << ", " << _result.force.Z() << ")\n";
 }
+
+gz::math::Pose3d RudderPose(double _hullPitchRad, double _rudderYawRad)
+{
+  const gz::math::Quaterniond baseRotation(_hullPitchRad, 0.0, 0.0);
+  const gz::math::Quaterniond rudderRelativeRotation(
+    0.0, 0.0, _rudderYawRad);
+  return gz::math::Pose3d(
+    gz::math::Vector3d::Zero,
+    baseRotation * rudderRelativeRotation);
+}
+
+double RearCpYawMoment(
+  const gz::math::Pose3d &_rudderPose,
+  double _hullPitchRad,
+  const gz::math::Vector3d &_force)
+{
+  const gz::math::Vector3d rearCpLocal(0.0, -1.48, -0.08);
+  const gz::math::Vector3d rearCpWorld =
+    _rudderPose.Rot().RotateVector(rearCpLocal);
+  const gz::math::Vector3d momentAboutBaseWorld =
+    rearCpWorld.Cross(_force);
+  const gz::math::Quaterniond baseRotation(_hullPitchRad, 0.0, 0.0);
+  const gz::math::Vector3d yawAxisWorld =
+    baseRotation.RotateVector(gz::math::Vector3d(0.0, 0.0, 1.0));
+  return momentAboutBaseWorld.Dot(yawAxisWorld);
+}
 }  // namespace
 
 TEST(LiftDragModelVerticalRudder,
-     ProductionFixedPlaneProducesLateralForceAndPositiveYawMoment)
+     ProductionFixedPlaneProducesSignedLateralForceAndYawMoment)
 {
   constexpr double waterSpeedMps = 2.0;
-  const double rudderYawRad = Radians(5.0);
+  const double positiveRudderYawRad = Radians(5.0);
+  const double negativeRudderYawRad = Radians(-5.0);
   const double hullPitchRad = Radians(3.5);
 
   // The sailboat model points along +Y, so physical pitch is a rotation about
   // the model's lateral +X axis.  The relative flow remains longitudinal and
   // horizontal in world coordinates.
-  const gz::math::Quaterniond baseRotation(hullPitchRad, 0.0, 0.0);
-  const gz::math::Quaterniond rudderRelativeRotation(
-    0.0, 0.0, rudderYawRad);
-  const gz::math::Pose3d rudderPose(
-    gz::math::Vector3d::Zero,
-    baseRotation * rudderRelativeRotation);
+  const gz::math::Pose3d positiveRudderPose =
+    RudderPose(hullPitchRad, positiveRudderYawRad);
+  const gz::math::Pose3d negativeRudderPose =
+    RudderPose(hullPitchRad, negativeRudderYawRad);
   const gz::math::Vector3d relativeWaterFlowWorld(
     0.0, -waterSpeedMps, 0.0);
 
   const ioes::sim::LiftDragModel radialComparisonModel(
     RudderParams(true));
   const auto radialComparison = radialComparisonModel.Compute(
-    relativeWaterFlowWorld, rudderPose);
+    relativeWaterFlowWorld, positiveRudderPose);
 
   // Production vertical-rudder convention: fixed horizontal lift plane,
   // +Y chord direction, and +X positive-lift reference.
   const ioes::sim::LiftDragModel productionModel(
     RudderParams(false, 1.0));
-  const auto production = productionModel.Compute(
-    relativeWaterFlowWorld, rudderPose);
+  const auto positiveRudder = productionModel.Compute(
+    relativeWaterFlowWorld, positiveRudderPose);
+  const auto negativeRudder = productionModel.Compute(
+    relativeWaterFlowWorld, negativeRudderPose);
 
   PrintResult("radial_symmetry_comparison", radialComparison);
-  PrintResult("production_fixed_lateral_+X", production);
+  PrintResult("production_fixed_lateral_+5deg", positiveRudder);
+  PrintResult("production_fixed_lateral_-5deg", negativeRudder);
 
   // With radial symmetry the model constructs its lift plane from the full
   // 3-D flow vector.  Both rudder yaw and hull pitch therefore contribute to
   // alpha, and the pitch contribution produces a substantial vertical force.
   const double expectedRadialAlpha = std::acos(
-    std::cos(hullPitchRad) * std::cos(rudderYawRad));
+    std::cos(hullPitchRad) * std::cos(positiveRudderYawRad));
   EXPECT_NEAR(radialComparison.alpha, expectedRadialAlpha, 1e-12);
   EXPECT_GT(
     std::abs(radialComparison.force.Z()),
@@ -104,34 +132,49 @@ TEST(LiftDragModelVerticalRudder,
     0.4 * radialComparison.force.Length());
 
   // A fixed vertical-rudder lift plane removes the spanwise pitch component
-  // before calculating alpha.  Its alpha is set primarily by the 5-degree
-  // yaw, and either lateral reference sign keeps the force overwhelmingly in
-  // the horizontal lateral direction.  The sign selects the positive-lift
-  // direction without changing that plane.
-  EXPECT_NEAR(production.alpha, rudderYawRad, 1e-12);
-  EXPECT_GT(radialComparison.alpha, production.alpha);
-  EXPECT_GT(production.force.X(), 0.0);
+  // before calculating alpha.  Its signed alpha follows the rudder yaw, while
+  // the configured +X reference keeps lift in the horizontal lateral plane.
+  EXPECT_NEAR(positiveRudder.alpha, positiveRudderYawRad, 1e-12);
+  EXPECT_NEAR(negativeRudder.alpha, negativeRudderYawRad, 1e-12);
+  EXPECT_GT(radialComparison.alpha, positiveRudder.alpha);
+  EXPECT_GT(positiveRudder.force.X(), 0.0);
+  EXPECT_LT(negativeRudder.force.X(), 0.0);
   EXPECT_GT(
-    production.force.X(),
-    10.0 * std::abs(production.force.Y()));
+    positiveRudder.force.X(),
+    10.0 * std::abs(positiveRudder.force.Y()));
+  EXPECT_GT(
+    std::abs(negativeRudder.force.X()),
+    10.0 * std::abs(negativeRudder.force.Y()));
   EXPECT_LT(
-    std::abs(production.force.Z()),
-    0.02 * std::abs(production.force.X()));
+    std::abs(positiveRudder.force.Z()),
+    0.02 * std::abs(positiveRudder.force.X()));
+  EXPECT_LT(
+    std::abs(negativeRudder.force.Z()),
+    0.02 * std::abs(negativeRudder.force.X()));
   EXPECT_GT(
     std::abs(radialComparison.force.Z()),
-    10.0 * std::abs(production.force.Z()));
+    10.0 * std::abs(positiveRudder.force.Z()));
+
+  EXPECT_NEAR(
+    positiveRudder.force.X(),
+    -negativeRudder.force.X(),
+    1e-9);
+  EXPECT_NEAR(positiveRudder.cd, negativeRudder.cd, 1e-12);
+  EXPECT_NEAR(
+    positiveRudder.drag.Length(),
+    negativeRudder.drag.Length(),
+    1e-12);
 
   // The production CP is aft of the base origin.  Project r x F onto the
   // hull's actual world yaw axis, matching FoilLiftDragSystem diagnostics.
-  const gz::math::Vector3d rearCpLocal(0.0, -1.48, -0.08);
-  const gz::math::Vector3d rearCpWorld =
-    rudderPose.Rot().RotateVector(rearCpLocal);
-  const gz::math::Vector3d momentAboutBaseWorld =
-    rearCpWorld.Cross(production.force);
-  const gz::math::Vector3d yawAxisWorld =
-    baseRotation.RotateVector(gz::math::Vector3d(0.0, 0.0, 1.0));
-  const double yawMomentNm = momentAboutBaseWorld.Dot(yawAxisWorld);
-  std::cout << "production_rear_cp_yaw_moment_nm="
-            << yawMomentNm << "\n";
-  EXPECT_GT(yawMomentNm, 0.0);
+  const double positiveYawMomentNm = RearCpYawMoment(
+    positiveRudderPose, hullPitchRad, positiveRudder.force);
+  const double negativeYawMomentNm = RearCpYawMoment(
+    negativeRudderPose, hullPitchRad, negativeRudder.force);
+  std::cout << "production_rear_cp_yaw_moment_nm=(+5deg: "
+            << positiveYawMomentNm
+            << ", -5deg: " << negativeYawMomentNm << ")\n";
+  EXPECT_GT(positiveYawMomentNm, 0.0);
+  EXPECT_LT(negativeYawMomentNm, 0.0);
+  EXPECT_NEAR(positiveYawMomentNm, -negativeYawMomentNm, 1e-9);
 }

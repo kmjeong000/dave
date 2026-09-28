@@ -491,6 +491,22 @@ def test_rudder_command_has_one_base_to_adapter_to_controller_path():
     assert controller.findtext("topic") == (
         "/model/sailboat/joint/rudder_joint/cmd_pos"
     )
+    assert float(controller.findtext("p_gain")) == pytest.approx(400.0)
+    assert float(controller.findtext("i_gain")) == pytest.approx(0.0)
+    assert float(controller.findtext("d_gain")) == pytest.approx(7.5)
+    assert float(controller.findtext("cmd_max")) == pytest.approx(50.0)
+    assert float(controller.findtext("cmd_min")) == pytest.approx(-50.0)
+
+    rudder_joint = root.find(".//joint[@name='rudder_joint']")
+    assert rudder_joint is not None
+    assert float(rudder_joint.findtext("axis/limit/lower")) == pytest.approx(
+        -math.pi / 4, abs=1e-5
+    )
+    assert float(rudder_joint.findtext("axis/limit/upper")) == pytest.approx(
+        math.pi / 4, abs=1e-5
+    )
+    assert float(rudder_joint.findtext("axis/limit/effort")) == pytest.approx(50.0)
+    assert float(rudder_joint.findtext("axis/limit/velocity")) == pytest.approx(3.0)
 
     adapter = (
         repo / "models/dave_robot_models/scripts/sailboat_command_adapter.py"

@@ -1,3 +1,4 @@
+import math
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -5,6 +6,8 @@ import pytest
 
 from experiments.sailboat_performance.guided_heading import (
     GuidedHeadingTarget,
+    GuidedTurnRateTarget,
+    guided_body_velocity_yaw_rate_type_mask,
     guided_velocity_yaw_type_mask,
     local_ned_velocity,
     parse_ardupilot_parameter_file,
@@ -23,6 +26,7 @@ class FakeMav:
 
 MAVLINK = SimpleNamespace(
     MAV_FRAME_LOCAL_NED=1,
+    MAV_FRAME_BODY_NED=8,
     POSITION_TARGET_TYPEMASK_X_IGNORE=1,
     POSITION_TARGET_TYPEMASK_Y_IGNORE=2,
     POSITION_TARGET_TYPEMASK_Z_IGNORE=4,
@@ -30,6 +34,7 @@ MAVLINK = SimpleNamespace(
     POSITION_TARGET_TYPEMASK_AX_IGNORE=64,
     POSITION_TARGET_TYPEMASK_AY_IGNORE=128,
     POSITION_TARGET_TYPEMASK_AZ_IGNORE=256,
+    POSITION_TARGET_TYPEMASK_YAW_IGNORE=1024,
     POSITION_TARGET_TYPEMASK_YAW_RATE_IGNORE=2048,
 )
 
@@ -46,6 +51,25 @@ def test_fixed_heading_target_uses_velocity_xy_and_yaw_only():
     assert first[4] == 2535
     assert first[8:11] == pytest.approx((0.0, 1.0, 0.0), abs=1e-12)
     assert first[14] == pytest.approx(1.57079632679)
+
+
+def test_turn_rate_target_uses_body_velocity_and_yaw_rate_only():
+    master = SimpleNamespace(mav=FakeMav(), target_system=1, target_component=1)
+    target = GuidedTurnRateTarget(master, MAVLINK, 12.0, 1.0, refresh_hz=5.0)
+
+    assert guided_body_velocity_yaw_rate_type_mask(MAVLINK) == 1511
+    assert target.send_if_due(10.0)
+    assert not target.send_if_due(10.19)
+    target.set_turn_rate(-12.0)
+    assert target.send_if_due(10.20)
+
+    positive, negative = master.mav.calls
+    assert positive[3] == MAVLINK.MAV_FRAME_BODY_NED
+    assert positive[4] == 1511
+    assert positive[8:11] == pytest.approx((1.0, 0.0, 0.0))
+    assert positive[14] == pytest.approx(0.0)
+    assert positive[15] == pytest.approx(math.radians(12.0))
+    assert negative[15] == pytest.approx(math.radians(-12.0))
 
 
 def test_wind_only_contract_matches_repository_configuration():

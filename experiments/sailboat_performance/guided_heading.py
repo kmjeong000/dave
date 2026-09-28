@@ -49,6 +49,25 @@ def guided_velocity_yaw_type_mask(mavlink: Any) -> int:
         raise ValueError(f"MAVLink module lacks required type-mask constant: {exc}") from exc
 
 
+def guided_body_velocity_yaw_rate_type_mask(mavlink: Any) -> int:
+    """Use body-frame vx/vy and yaw-rate in SET_POSITION_TARGET_LOCAL_NED."""
+
+    ignored = (
+        "POSITION_TARGET_TYPEMASK_X_IGNORE",
+        "POSITION_TARGET_TYPEMASK_Y_IGNORE",
+        "POSITION_TARGET_TYPEMASK_Z_IGNORE",
+        "POSITION_TARGET_TYPEMASK_VZ_IGNORE",
+        "POSITION_TARGET_TYPEMASK_AX_IGNORE",
+        "POSITION_TARGET_TYPEMASK_AY_IGNORE",
+        "POSITION_TARGET_TYPEMASK_AZ_IGNORE",
+        "POSITION_TARGET_TYPEMASK_YAW_IGNORE",
+    )
+    try:
+        return sum(int(getattr(mavlink, name)) for name in ignored)
+    except AttributeError as exc:
+        raise ValueError(f"MAVLink module lacks required type-mask constant: {exc}") from exc
+
+
 @dataclass
 class GuidedHeadingTarget:
     """Periodically refresh one fixed velocity-heading target."""
@@ -100,6 +119,70 @@ class GuidedHeadingTarget:
             0.0,
             math.radians(float(self.heading_deg) % 360.0),
             0.0,
+        )
+        self._last_send_monotonic_s = now
+        self.send_count += 1
+        return True
+
+
+@dataclass
+class GuidedTurnRateTarget:
+    """Refresh one direct Rover GUIDED turn-rate-and-speed target."""
+
+    master: Any
+    mavlink: Any
+    turn_rate_deg_s: float
+    desired_speed_mps: float
+    refresh_hz: float = 5.0
+
+    def __post_init__(self) -> None:
+        if not math.isfinite(float(self.turn_rate_deg_s)):
+            raise ValueError("turn_rate_deg_s must be finite")
+        if not math.isfinite(float(self.desired_speed_mps)) or self.desired_speed_mps <= 0.0:
+            raise ValueError("desired_speed_mps must be finite and positive")
+        if not math.isfinite(float(self.refresh_hz)) or self.refresh_hz <= 0.0:
+            raise ValueError("refresh_hz must be finite and positive")
+        self.type_mask = guided_body_velocity_yaw_rate_type_mask(self.mavlink)
+        self._last_send_monotonic_s: float | None = None
+        self.send_count = 0
+
+    @property
+    def refresh_period_s(self) -> float:
+        return 1.0 / float(self.refresh_hz)
+
+    def set_turn_rate(self, turn_rate_deg_s: float) -> None:
+        value = float(turn_rate_deg_s)
+        if not math.isfinite(value):
+            raise ValueError("turn_rate_deg_s must be finite")
+        self.turn_rate_deg_s = value
+        self._last_send_monotonic_s = None
+
+    def send_if_due(self, monotonic_s: float, *, force: bool = False) -> bool:
+        now = float(monotonic_s)
+        if (
+            not force
+            and self._last_send_monotonic_s is not None
+            and now - self._last_send_monotonic_s + 1e-12 < self.refresh_period_s
+        ):
+            return False
+
+        self.master.mav.set_position_target_local_ned_send(
+            max(0, int(now * 1000.0)) & 0xFFFFFFFF,
+            self.master.target_system,
+            self.master.target_component,
+            int(self.mavlink.MAV_FRAME_BODY_NED),
+            self.type_mask,
+            0.0,
+            0.0,
+            0.0,
+            float(self.desired_speed_mps),
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            math.radians(float(self.turn_rate_deg_s)),
         )
         self._last_send_monotonic_s = now
         self.send_count += 1

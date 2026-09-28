@@ -92,11 +92,33 @@ LiftDragResult LiftDragModel::Compute(
   const gz::math::Vector3d liftUnit = SafeNormalize(dragUnit.Cross(spanWorld));
 
   const double cosAlpha = Clamp(-forwardWorld.Dot(dragUnit), -1.0, 1.0);
-  const double alpha = std::acos(cosAlpha);
+
+  double alpha;
+  double cl;
+  double cd;
+  if (this->params.radialSymmetry)
+  {
+    // Preserve the original unsigned coefficient behavior for radially
+    // symmetric foils and sails.
+    alpha = std::acos(cosAlpha);
+    cl = this->LiftCoefficient(alpha);
+    cd = this->DragCoefficient(alpha);
+  }
+  else
+  {
+    // In a fixed lift plane, upwardWorld defines the positive-lift side and
+    // therefore the sign of alpha.
+    const double sinAlpha =
+      Clamp(-upwardWorld.Dot(dragUnit), -1.0, 1.0);
+    alpha = std::atan2(sinAlpha, cosAlpha);
+
+    const double absAlpha = std::abs(alpha);
+    const double alphaSign = (alpha > 0.0) - (alpha < 0.0);
+    cl = alphaSign * this->LiftCoefficient(absAlpha);
+    cd = this->DragCoefficient(absAlpha);
+  }
 
   const double q = 0.5 * this->params.fluidDensity * speedLD * speedLD;
-  const double cl = this->LiftCoefficient(alpha);
-  const double cd = this->DragCoefficient(alpha);
 
   result.alpha = alpha;
   result.speed = speedLD;

@@ -244,6 +244,12 @@
         </inertia>
       </inertial>
       <sensor name="imu_sensor" type="imu">
+        <!--
+          ArduPilotPlugin forwards IMU acceleration and gyro vectors without
+          applying modelXYZToAirplaneXForwardZDown, so the sensor frame itself
+          must use the Aircraft body convention (x-forward, y-right, z-down).
+        -->
+        <pose>0 0 0 3.142 0 1.571</pose>
         <always_on>true</always_on>
         <update_rate>50.0</update_rate>
       </sensor>
@@ -587,8 +593,9 @@
         <servo_max>2000</servo_max>
         <type>COMMAND</type>
         <cmd_topic>/model/sailboat/joint/rudder_joint/base_cmd_pos</cmd_topic>
+        <!-- ArduPilot positive steering is right/CW; this Gazebo rudder joint requires the opposite joint-angle sign. -->
         <offset>-0.5</offset>
-        <multiplier>1.5708</multiplier>
+        <multiplier>-1.5708</multiplier>
       </control>
 
       <control channel="1">
@@ -608,9 +615,15 @@
       name="gz::sim::systems::JointPositionController">
       <joint_name>rudder_joint</joint_name>
       <topic>/model/sailboat/joint/rudder_joint/cmd_pos</topic>
-      <p_gain>25</p_gain>
+      <!--
+        Position-servo authority sized from the matched sailing-load test.
+        Kp=400 holds the observed ~3.8 Nm peak disturbance within ~0.55 deg;
+        Kd=7.5 is near critical damping for the ~0.039 kg m^2 rudder inertia
+        after accounting for the joint's existing 0.58 N m s/rad damping.
+      -->
+      <p_gain>400</p_gain>
       <i_gain>0</i_gain>
-      <d_gain>2</d_gain>
+      <d_gain>7.5</d_gain>
       <i_max>1</i_max>
       <i_min>-1</i_min>
       <cmd_max>50</cmd_max>

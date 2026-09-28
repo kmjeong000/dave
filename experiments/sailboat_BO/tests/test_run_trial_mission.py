@@ -115,6 +115,32 @@ def downloaded_item(
 
 
 class MissionUploadTests(unittest.TestCase):
+    def test_local_capture_tracker_ignores_early_mavlink_progress(self):
+        tracker = run_trial.WaypointTracker()
+
+        run_trial.sync_waypoint_tracker(
+            tracker,
+            raw_waypoint_index=1,
+            completed_waypoint_count_from_reached=2,
+            waypoint_count=3,
+            allow_mavlink_progress=False,
+        )
+
+        self.assertEqual(tracker.completed_waypoint_count, 0)
+
+    def test_nonlocal_tracker_keeps_mavlink_progress_behavior(self):
+        tracker = run_trial.WaypointTracker()
+
+        run_trial.sync_waypoint_tracker(
+            tracker,
+            raw_waypoint_index=1,
+            completed_waypoint_count_from_reached=2,
+            waypoint_count=3,
+            allow_mavlink_progress=True,
+        )
+
+        self.assertEqual(tracker.completed_waypoint_count, 2)
+
     def test_wind_message_interval_is_requested(self):
         master = FakeMaster()
 
@@ -367,52 +393,35 @@ class MissionUploadTests(unittest.TestCase):
             (12.5, -34.0),
         )
 
-    def test_upwind_tack_waypoints_remain_on_gazebo_north_south_axis(self):
+    def test_upwind_tack_first_leg_targets_the_no_go_zone(self):
         repo_root = Path(__file__).resolve().parents[3]
         scenario = run_trial.load_yaml(
             repo_root / "experiments" / "sailboat_BO" / "scenario.yaml"
         )
-        upwind = next(
-            item
-            for item in scenario["scenarios"]
-            if item["id"] == "train_upwind_tack"
+        upwind = run_trial.get_scenario(scenario, "train_upwind_tack")
+        params = run_trial.load_param_overrides_from_file(
+            repo_root / "experiments" / "sailboat_BO" / "baseline_params.json"
         )
-        frame = upwind["mission"]["frame"]
-        waypoints = upwind["mission"]["waypoints"]
-        self.assertEqual(frame, "gazebo_xy_m")
-        self.assertEqual(waypoints, [[0, 60], [0, -60]])
+        spawn = upwind["spawn"]
+        first_waypoint = upwind["mission"]["waypoints"][0]
+        wind_x_mps, wind_y_mps, _ = upwind["world"]["wind_world_xyz_mps"]
 
-        home_lat, home_lon = 44.65870, -124.06556
-
-        north_lat, north_lon = run_trial.mission_xy_to_geodetic(
-            frame,
-            home_lat,
-            home_lon,
-            *waypoints[0],
+        wind_to_rad = math.atan2(wind_x_mps, wind_y_mps)
+        wind_from_rad = run_trial.wrap_pi(wind_to_rad + math.pi)
+        first_leg_bearing_rad = math.atan2(
+            float(first_waypoint[0]) - float(spawn["x_m"]),
+            float(first_waypoint[1]) - float(spawn["y_m"]),
         )
-        south_lat, south_lon = run_trial.mission_xy_to_geodetic(
-            frame,
-            home_lat,
-            home_lon,
-            *waypoints[1],
-        )
-        north_east_m, north_north_m = run_trial.geodetic_to_enu(
-            home_lat,
-            home_lon,
-            north_lat,
-            north_lon,
-        )
-        south_east_m, south_north_m = run_trial.geodetic_to_enu(
-            home_lat,
-            home_lon,
-            south_lat,
-            south_lon,
+        first_leg_wind_difference_deg = math.degrees(
+            abs(run_trial.wrap_pi(first_leg_bearing_rad - wind_from_rad))
         )
 
-        self.assertAlmostEqual(north_east_m, 0.0, places=6)
-        self.assertAlmostEqual(north_north_m, 60.0, places=6)
-        self.assertAlmostEqual(south_east_m, 0.0, places=6)
-        self.assertAlmostEqual(south_north_m, -60.0, places=6)
+        # ArduPilot uses a fixed 10-degree buffer outside SAIL_NO_GO_ANGLE.
+        effective_no_go_deg = float(params["SAIL_NO_GO_ANGLE"]) + 10.0
+        self.assertLessEqual(first_leg_wind_difference_deg, effective_no_go_deg)
+        self.assertAlmostEqual(math.degrees(wind_from_rad) % 360.0, 180.0)
+        self.assertAlmostEqual(math.degrees(first_leg_bearing_rad) % 360.0, 180.0)
+        self.assertAlmostEqual(first_leg_wind_difference_deg, 0.0)
 
     def test_mavlink_position_round_trip_preserves_gazebo_xy(self):
         home_lat, home_lon = 44.65870, -124.06556
@@ -487,11 +496,23 @@ class MissionUploadTests(unittest.TestCase):
             -0.5,
             places=6,
         )
+        servo_min = float(rudder_control.findtext("servo_min", "nan"))
+        servo_max = float(rudder_control.findtext("servo_max", "nan"))
+        offset = float(rudder_control.findtext("offset", "nan"))
+        multiplier = float(rudder_control.findtext("multiplier", "nan"))
+
+        def rudder_command_rad(pwm: float) -> float:
+            normalized = (pwm - servo_min) / (servo_max - servo_min)
+            return (normalized + offset) * multiplier
+
         self.assertAlmostEqual(
-            float(rudder_control.findtext("multiplier", "nan")),
-            1.5708,
+            multiplier,
+            -1.5708,
             places=6,
         )
+        self.assertAlmostEqual(rudder_command_rad(1000.0), 0.7854, places=6)
+        self.assertAlmostEqual(rudder_command_rad(1500.0), 0.0, places=6)
+        self.assertAlmostEqual(rudder_command_rad(2000.0), -0.7854, places=6)
 
     def test_trial_param_rendering_does_not_add_rudder_servo_reversal(self):
         repo_root = Path(__file__).resolve().parents[3]

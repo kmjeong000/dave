@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import math
+from pathlib import Path
 
 import pytest
 
@@ -13,6 +14,38 @@ from experiments.sailboat_physics.frames import (
     gazebo_quaternion_to_frd_attitude_deg,
     summarize_frame_case,
 )
+from experiments.sailboat_physics.tests.sdf_test_utils import (
+    parse_sdf_with_extensions,
+)
+
+
+REPO_ROOT = Path(__file__).resolve().parents[3]
+MODEL_FILE = REPO_ROOT / "models/dave_robot_models/description/sailboat/model.sdf"
+
+
+def _pose_values(text: str | None) -> list[float]:
+    assert text is not None
+    values = [float(value) for value in text.split()]
+    assert len(values) == 6
+    return values
+
+
+def test_imu_sensor_frame_matches_ardupilot_aircraft_body_rotation():
+    root = parse_sdf_with_extensions(MODEL_FILE)
+    sensor = root.find(".//sensor[@name='imu_sensor']")
+    plugin = root.find(".//plugin[@name='ArduPilotPlugin']")
+
+    assert sensor is not None
+    assert plugin is not None
+
+    sensor_pose = _pose_values(sensor.findtext("pose"))
+    model_to_aircraft = _pose_values(
+        plugin.findtext("modelXYZToAirplaneXForwardZDown")
+    )
+
+    assert sensor_pose[:3] == pytest.approx([0.0, 0.0, 0.0], abs=1e-9)
+    assert sensor_pose[3:] == pytest.approx([3.142, 0.0, 1.571], abs=1e-6)
+    assert sensor_pose[3:] == pytest.approx(model_to_aircraft[3:], abs=1e-6)
 
 
 def quaternion_from_gazebo_rpy_deg(roll_deg, pitch_deg, yaw_deg):
