@@ -547,6 +547,9 @@
       <daggerboard_link>rudder_link</daggerboard_link>
       <base_link>base_link</base_link>
       <yaw_axis>0 0 1</yaw_axis>
+      <!-- Preserve the validated radial rudder transfer while excluding flow
+           along the vertical rudder span / hull yaw axis from the 2-D foil. -->
+      <project_flow_onto_yaw_plane>true</project_flow_onto_yaw_plane>
       <command_topic>/model/sailboat/joint/rudder_joint/cmd_pos</command_topic>
       <water_velocity>0 0 0</water_velocity>
       <fluid_density>1000.0</fluid_density>

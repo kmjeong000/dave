@@ -193,3 +193,5 @@ def test_rudder_foil_enables_base_referenced_yaw_diagnostics():
     assert rudder_plugin.findtext("command_topic") == (
         "/model/sailboat/joint/rudder_joint/cmd_pos"
     )
+    assert rudder_plugin.findtext("radial_symmetry") == "true"
+    assert rudder_plugin.findtext("project_flow_onto_yaw_plane") == "true"

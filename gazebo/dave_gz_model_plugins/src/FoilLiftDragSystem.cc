@@ -1,3 +1,4 @@
+#include "dave_gz_model_plugins/FoilFlowProjection.hh"
 #include "dave_gz_model_plugins/LiftDragModel.hh"
 
 #include <gz/common/Console.hh>
@@ -145,6 +146,14 @@ public:
     {
       this->yawAxisBody /= yawAxisLength;
     }
+    this->projectFlowOntoYawPlane =
+      GetParam<bool>(_sdf, "project_flow_onto_yaw_plane", false);
+    if (this->projectFlowOntoYawPlane &&
+        this->baseLink.Entity() == gz::sim::kNullEntity)
+    {
+      gzwarn << "[FoilLiftDragSystem] <project_flow_onto_yaw_plane> requires "
+             << "a valid <base_link>; flow projection is unavailable.\n";
+    }
 
     LiftDragParams p;
     p.fluidDensity = GetParam<double>(_sdf, "fluid_density", 1000.0);
@@ -201,7 +210,21 @@ public:
     // Equivalent to asv_sim FoilPlugin:
     // free stream = water velocity - foil CP velocity. For still water, this is -velCp.
     const gz::math::Vector3d freeStream = this->waterVelocityWorld - *velOpt;
-    auto result = this->modelData.Compute(freeStream, *poseOpt);
+    gz::math::Vector3d modelFreeStream = freeStream;
+
+    if (this->projectFlowOntoYawPlane &&
+        this->baseLink.Entity() != gz::sim::kNullEntity)
+    {
+      const auto basePoseOpt = this->baseLink.WorldPose(_ecm);
+      if (basePoseOpt)
+      {
+        const gz::math::Vector3d yawAxisWorld =
+          basePoseOpt->Rot().RotateVector(this->yawAxisBody);
+        modelFreeStream =
+          ProjectVectorOntoPlane(modelFreeStream, yawAxisWorld);
+      }
+    }
+    const auto result = this->modelData.Compute(modelFreeStream, *poseOpt);
 
     if (this->debug)
     {
@@ -294,6 +317,7 @@ private:
   gz::math::Vector3d waterVelocityWorld{0, 0, 0};
   gz::math::Vector3d yawAxisBody{0, 0, 1};
   double lastCommandRad{0.0};
+  bool projectFlowOntoYawPlane{false};
   bool debug{false};
   double debugPeriod{1.0};
   double lastDebugTime{-1e9};

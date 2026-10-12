@@ -114,8 +114,20 @@ ament_environment_hooks(
 
 # Testing setup
 if(BUILD_TESTING)
+  find_package(ament_cmake_gtest REQUIRED)
   find_package(ament_lint_auto REQUIRED)
   ament_lint_auto_find_test_dependencies()
+
+  ament_add_gtest(test_foil_flow_projection
+    test/FoilFlowProjection_TEST.cc
+    src/LiftDragModel.cc
+  )
+  target_include_directories(test_foil_flow_projection PRIVATE
+    include
+  )
+  target_link_libraries(test_foil_flow_projection
+    gz-math${GZ_MATH_VER}::gz-math${GZ_MATH_VER}
+  )
 endif()
 
 ament_package()
