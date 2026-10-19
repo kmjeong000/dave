@@ -24,7 +24,7 @@ def _plugins(root: ET.Element, name: str) -> list[ET.Element]:
     return [plugin for plugin in root.findall(".//plugin") if plugin.get("name") == name]
 
 
-def test_sheet_range_matches_sail_joint_hard_limit():
+def test_operational_allowance_is_45_deg_and_mechanical_limit_is_90_deg():
     params = read_param_map(PARAM_FILE)
     root = parse_sdf_with_extensions(MODEL_FILE)
     sail_joint = root.find(".//joint[@name='sail_joint']")
@@ -32,8 +32,9 @@ def test_sheet_range_matches_sail_joint_hard_limit():
     assert sail_joint is not None
     assert params["SAIL_ANGLE_MIN"] == pytest.approx(0.0)
     assert params["SAIL_ANGLE_MAX"] == pytest.approx(45.0)
-    assert float(sail_joint.findtext("axis/limit/lower")) == pytest.approx(-math.pi / 4, abs=1e-5)
-    assert float(sail_joint.findtext("axis/limit/upper")) == pytest.approx(math.pi / 4, abs=1e-5)
+    assert float(sail_joint.findtext("axis/limit/lower")) == pytest.approx(-math.pi / 2, abs=1e-5)
+    assert float(sail_joint.findtext("axis/limit/upper")) == pytest.approx(math.pi / 2, abs=1e-5)
+    assert float(sail_joint.findtext("axis/limit/effort")) == pytest.approx(260.0)
     assert float(sail_joint.findtext("axis/dynamics/damping")) == pytest.approx(1.0)
     assert float(sail_joint.findtext("axis/dynamics/friction")) == pytest.approx(0.05)
 
@@ -48,21 +49,30 @@ def test_ardupilot_mainsail_channel_outputs_unsigned_allowance():
     assert float(control.findtext("multiplier")) == pytest.approx(math.pi / 4, abs=1e-5)
 
 
-def test_sail_uses_unilateral_asv_controller_not_generic_position_controller():
+def test_sail_uses_one_virtual_sheet_actuator_as_the_only_controller():
     root = parse_sdf_with_extensions(MODEL_FILE)
-    sail_controllers = _plugins(root, "gz::sim::systems::SailPositionController")
+    virtual_sheets = _plugins(root, "ioes::sim::VirtualSheetActuatorSystem")
 
-    assert len(sail_controllers) == 1
-    controller = sail_controllers[0]
-    assert controller.get("filename") == "asv_sim2-sail-position-controller-system"
+    assert len(virtual_sheets) == 1
+    controller = virtual_sheets[0]
+    assert controller.get("filename") == "libVirtualSheetActuatorSystem.so"
     assert controller.findtext("joint_name") == "sail_joint"
     assert controller.findtext("topic") == "/model/sailboat/joint/sail_joint/cmd_pos"
-    assert float(controller.findtext("p_gain")) == pytest.approx(30.0)
-    assert float(controller.findtext("i_gain")) == pytest.approx(0.0)
-    assert float(controller.findtext("d_gain")) == pytest.approx(0.0)
-    assert float(controller.findtext("cmd_max")) == pytest.approx(100.0)
-    assert float(controller.findtext("cmd_min")) == pytest.approx(-100.0)
-    assert float(controller.findtext("initial_position")) == pytest.approx(math.pi / 4, abs=1e-5)
+    assert float(controller.findtext("maximum_allowance_rad")) == pytest.approx(math.pi / 4, abs=1e-5)
+    assert float(controller.findtext("initial_allowance_rad")) == pytest.approx(math.pi / 4, abs=1e-5)
+    assert float(controller.findtext("linear_stiffness_nm_per_rad")) == pytest.approx(300.0)
+    assert float(controller.findtext("quadratic_stiffness_nm_per_rad2")) == pytest.approx(460.0)
+    assert float(controller.findtext("damping_nm_per_rad_s")) == pytest.approx(44.0)
+    assert float(controller.findtext("maximum_torque_nm")) == pytest.approx(260.0)
+    assert float(controller.findtext("containment_limit_rad")) == pytest.approx(
+        math.radians(15.0)
+    )
+    assert float(controller.findtext("take_up_rate_rad_s")) == pytest.approx(
+        math.radians(30.0)
+    )
+
+    assert not _plugins(root, "gz::sim::systems::SailPositionController")
+    assert not _plugins(root, "ioes::sim::SailSheetRestraintSystem")
 
     generic_sail_controllers = [
         plugin

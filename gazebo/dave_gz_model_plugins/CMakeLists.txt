@@ -91,6 +91,21 @@ target_link_libraries(StartupStateHoldSystem
   gz-transport${GZ_TRANSPORT_VER}::gz-transport${GZ_TRANSPORT_VER}
 )
 
+add_library(VirtualSheetActuatorSystem SHARED
+  src/VirtualSheetActuatorSystem.cc
+)
+
+target_include_directories(VirtualSheetActuatorSystem PRIVATE
+  include
+)
+
+target_link_libraries(VirtualSheetActuatorSystem
+  gz-sim${GZ_SIM_VER}::gz-sim${GZ_SIM_VER}
+  gz-plugin${GZ_PLUGIN_VER}::register
+  gz-msgs${GZ_MSGS_VER}::gz-msgs${GZ_MSGS_VER}
+  gz-transport${GZ_TRANSPORT_VER}::gz-transport${GZ_TRANSPORT_VER}
+)
+
 # Install targets
 install(
   TARGETS 
@@ -98,6 +113,7 @@ install(
     SailLiftDragSystem
     FoilLiftDragSystem
     StartupStateHoldSystem
+    VirtualSheetActuatorSystem
   DESTINATION lib/${PROJECT_NAME}
 )
 
@@ -127,6 +143,13 @@ if(BUILD_TESTING)
   )
   target_link_libraries(test_foil_flow_projection
     gz-math${GZ_MATH_VER}::gz-math${GZ_MATH_VER}
+  )
+
+  ament_add_gtest(test_virtual_sheet_actuator
+    test/VirtualSheetActuator_TEST.cc
+  )
+  target_include_directories(test_virtual_sheet_actuator PRIVATE
+    include
   )
 endif()
 

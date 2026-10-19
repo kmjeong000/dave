@@ -92,9 +92,9 @@
       <axis>
         <xyz>0 0 1</xyz>
         <limit>
-          <lower>-0.7854</lower>  <!-- -45° -->
-          <upper>0.7854</upper>   <!-- +45° -->
-          <effort>100</effort>
+          <lower>-1.5708</lower>  <!-- -90° emergency mechanical limit -->
+          <upper>1.5708</upper>   <!-- +90° emergency mechanical limit -->
+          <effort>260</effort>
           <velocity>2.0</velocity>
         </limit>
         <dynamics>
@@ -616,20 +616,24 @@
       <cmd_min>-50</cmd_min>
     </plugin>
 
+    <!-- Reduced-order virtual mainsheet. The unsigned ArduPilot command is the
+         maximum sheet-out angle. The sheet is slack inside that allowance and
+         applies inward joint torque only when the boom exceeds it. -->
     <plugin
-      filename="asv_sim2-sail-position-controller-system"
-      name="gz::sim::systems::SailPositionController">
+      filename="libVirtualSheetActuatorSystem.so"
+      name="ioes::sim::VirtualSheetActuatorSystem">
       <joint_name>sail_joint</joint_name>
       <topic>/model/sailboat/joint/sail_joint/cmd_pos</topic>
-      <!-- Unilateral sheet spring: pull inward only outside the allowance. -->
-      <p_gain>30</p_gain>
-      <i_gain>0</i_gain>
-      <d_gain>0</d_gain>
-      <i_max>1</i_max>
-      <i_min>-1</i_min>
-      <cmd_max>100</cmd_max>
-      <cmd_min>-100</cmd_min>
-      <initial_position>0.7854</initial_position>
+      <base_link>base_link</base_link>
+      <maximum_allowance_rad>0.7854</maximum_allowance_rad>
+      <initial_allowance_rad>0.7854</initial_allowance_rad>
+      <linear_stiffness_nm_per_rad>300.0</linear_stiffness_nm_per_rad>
+      <quadratic_stiffness_nm_per_rad2>460.0</quadratic_stiffness_nm_per_rad2>
+      <damping_nm_per_rad_s>44.0</damping_nm_per_rad_s>
+      <maximum_torque_nm>260.0</maximum_torque_nm>
+      <containment_limit_rad>0.2617993877991494</containment_limit_rad>
+      <take_up_rate_rad_s>0.5235987755982988</take_up_rate_rad_s>
+      <physics_rate_telemetry>true</physics_rate_telemetry>
     </plugin>
 
     <plugin
