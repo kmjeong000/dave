@@ -1,0 +1,15 @@
+{
+  "automatic_retry": false,
+  "error": "ContractError",
+  "message": "B feasibility criterion failed; stopping",
+  "phase": "heldout",
+  "slot": {
+    "arm": "B",
+    "phase": "heldout",
+    "repeat": 0,
+    "scenario": "eval_long_oblique",
+    "slot": "14_eval_long_oblique_r00_B"
+  },
+  "status": "STOP_PRESERVED",
+  "timestamp_utc": "2026-10-26T07:15:43.089304+00:00"
+}

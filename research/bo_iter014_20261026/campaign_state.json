@@ -1,0 +1,90 @@
+{
+  "accepted_parent": {
+    "runtime_image_id": "sha256:c7dd2ca9507f72a6937b694f7318560a1f6c923035e561a9884d2b68458c16bc",
+    "source_commit": "4ec49538912fe88ca3be569c1a787dba4c07994b"
+  },
+  "continuation": {
+    "external_or_historical_history_resume_allowed": false,
+    "next_iteration": 1,
+    "required_history_root_iteration": 0,
+    "same_frozen_patch1_state_resume_allowed": true
+  },
+  "contract": {
+    "id": "bo_campaign_contract_v1",
+    "patch_revision": 1,
+    "sha256": "5454dfc50e4b5f7528bc7c27e531d1b3488b632f54c92b2bc1c4f99449c3f05b"
+  },
+  "created_at_utc": "2026-10-20T04:28:52.092542+00:00",
+  "format": "bo_campaign_contract_v1_patch1_state_v1",
+  "immutable_files": {
+    "bo_campaign_contract_v1_patch1.yaml": "5454dfc50e4b5f7528bc7c27e531d1b3488b632f54c92b2bc1c4f99449c3f05b",
+    "bo_campaign_contract_v1_patch1.yaml.sha256": "965ea4283e0393d2828155bfc3953ea8a7d7441e956a6a55324433a3bef476ca",
+    "bo_config.json": "24c282e2265bd4b329b0f38d191b6b2e4b7c98b6892d347c6138b827817ef550",
+    "iter_000/candidate_evaluation_v1_patch1.json": "67e9cdcbdd927d088532dbcd92c203fce3652c96ee796566b100d32f0dc56152",
+    "iter_000/iteration_result.json": "330eac5356dce47b782bc7aaf9456459508e5e31c2dc8a66472ca9f297ddff49",
+    "iter_000/params.json": "ec830d81b7be876685e1bd93f5e096bbd9971926cca3e2c01880939866393b12",
+    "iter_000/proposal.json": "7ce54267af2e4206eab0d302ee1d0998ba8c53bfa928c7f3f252f35e8d59cf89"
+  },
+  "iteration_0": {
+    "candidate_feasible": true,
+    "expected_trial_count": 6,
+    "failure_count": 0,
+    "objective": 0.3953604710399666,
+    "params_sha256": "ec830d81b7be876685e1bd93f5e096bbd9971926cca3e2c01880939866393b12",
+    "snapshot": "iter_000/candidate_evaluation_v1_patch1.json",
+    "source_candidate_evaluation": "/home/jeong/sailboat_rl_results/bo/bo_campaign_contract_v1_iter0_20261020T014743Z/iter_000/trials/candidate_evaluation_v1_patch1.json",
+    "source_candidate_evaluation_sha256": "67e9cdcbdd927d088532dbcd92c203fce3652c96ee796566b100d32f0dc56152",
+    "trial_count": 6
+  },
+  "provenance": {
+    "baseline_params_sha256": "ec830d81b7be876685e1bd93f5e096bbd9971926cca3e2c01880939866393b12",
+    "contract_id": "bo_campaign_contract_v1",
+    "contract_patch_revision": 1,
+    "contract_sha256": "5454dfc50e4b5f7528bc7c27e531d1b3488b632f54c92b2bc1c4f99449c3f05b",
+    "framework_evaluator_sha256": "6138a5822a23a3e5b40142be339bea4adddf252c0e89bae5cad472ad51523035",
+    "post_trial_evaluator_sha256": "cdaca4770944a6af4f5551378815def97b912f18527a15612ec4c7290e4ed7ff",
+    "runtime_image_id": "sha256:c7dd2ca9507f72a6937b694f7318560a1f6c923035e561a9884d2b68458c16bc",
+    "scenario_sha256": "ad2d8d0028571b16471722fc8edbae7f9b9111b10606e59e5b23a89707189011",
+    "score_sha256": "de38730311821b15867f7403307b43e150fb88e3de98e1ff1ab147661c229a92",
+    "search_space": [
+      {
+        "high": 50.0,
+        "low": 20.0,
+        "name": "SAIL_ANGLE_IDEAL",
+        "type": "float"
+      },
+      {
+        "high": 70.0,
+        "low": 40.0,
+        "name": "SAIL_NO_GO_ANGLE",
+        "type": "float"
+      },
+      {
+        "high": 20.0,
+        "low": 4.0,
+        "name": "SAIL_XTRACK_MAX",
+        "type": "float"
+      },
+      {
+        "high": 0.4,
+        "low": 0.03,
+        "name": "ATC_SAIL_P",
+        "type": "float"
+      },
+      {
+        "high": 4.0,
+        "low": 0.8,
+        "name": "ATC_STR_ANG_P",
+        "type": "float"
+      },
+      {
+        "high": 1.2,
+        "low": 0.1,
+        "name": "ATC_STR_RAT_FF",
+        "type": "float"
+      }
+    ],
+    "source_commit": "4ec49538912fe88ca3be569c1a787dba4c07994b"
+  },
+  "status": "FROZEN_ITERATION_0"
+}

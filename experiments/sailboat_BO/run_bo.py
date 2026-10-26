@@ -5,6 +5,7 @@ import csv
 import json
 import math
 import random
+import shutil
 import subprocess
 import sys
 from dataclasses import dataclass
@@ -14,8 +15,24 @@ from typing import Any, Iterable, Optional
 
 try:
     from .common import DEFAULT_PARAMS_PATH, DEFAULT_RESULTS_DIR, DEFAULT_SCENARIO_PATH, load_yaml
+    from .bo_campaign_evaluator import (
+        evaluate_candidate,
+        load_contract,
+        sha256_file,
+        validate_campaign_preflight,
+        validate_run_settings,
+    )
+    from .bo_campaign_state import validate_frozen_campaign_state
 except ImportError:
     from common import DEFAULT_PARAMS_PATH, DEFAULT_RESULTS_DIR, DEFAULT_SCENARIO_PATH, load_yaml
+    from bo_campaign_evaluator import (
+        evaluate_candidate,
+        load_contract,
+        sha256_file,
+        validate_campaign_preflight,
+        validate_run_settings,
+    )
+    from bo_campaign_state import validate_frozen_campaign_state
 
 
 DEFAULT_OBJECTIVE_COLUMN = "scenario_cost"
@@ -115,6 +132,21 @@ def parse_args() -> argparse.Namespace:
         "--stop-on-failure",
         action="store_true",
         help="Stop a batch iteration on the first failed trial instead of collecting all scenario outcomes",
+    )
+    parser.add_argument(
+        "--campaign-contract",
+        help=(
+            "Frozen BO campaign YAML. When set, provenance and the six-trial "
+            "post-trial evaluator become mandatory."
+        ),
+    )
+    parser.add_argument(
+        "--runtime-image-id",
+        help="Immutable runtime image ID required by --campaign-contract",
+    )
+    parser.add_argument(
+        "--source-commit",
+        help="Optional explicit accepted-parent source commit attestation",
     )
     return parser.parse_args()
 
@@ -608,6 +640,10 @@ def run_iteration(
     container_repo_root: str | None,
     trial_dry_run: bool,
     keep_going: bool,
+    campaign_contract: str | None = None,
+    baseline_params_file: str | None = None,
+    runtime_image_id: str | None = None,
+    source_commit: str | None = None,
 ) -> IterationResult:
     iter_dir = bo_dir / f"iter_{iteration:03d}"
     trials_dir = iter_dir / "trials"
@@ -629,21 +665,44 @@ def run_iteration(
     print(f"[run_bo] iteration {iteration}: launching {' '.join(command)}", flush=True)
     completed = subprocess.run(command, check=False)
     summary_csv = trials_dir / "summary.csv"
-    rows = read_summary_rows(summary_csv)
     expected_trial_count = len(scenario_ids) * repeats
-    objective, mean_scenario_cost, worst_scenario_cost, failure_count = aggregate_objective(
-        rows,
-        objective_column=objective_column,
-        expected_trial_count=expected_trial_count,
-        worst_case_weight=worst_case_weight,
-    )
+    rows = read_summary_rows(summary_csv)
+    if campaign_contract is not None:
+        if baseline_params_file is None or runtime_image_id is None:
+            raise ValueError(
+                "campaign evaluation requires baseline params and runtime image ID"
+            )
+        evaluation = evaluate_candidate(
+            contract_path=campaign_contract,
+            scenario_path=scenario_file,
+            baseline_params_path=baseline_params_file,
+            params_path=params_file,
+            candidate_dir=trials_dir,
+            runtime_image_id=runtime_image_id,
+            source_commit=source_commit,
+            iteration=iteration,
+            batch_returncode=completed.returncode,
+        )
+        objective = float(evaluation["objective"])
+        mean_scenario_cost = float(evaluation["mean_scenario_cost"])
+        worst_scenario_cost = float(evaluation["worst_scenario_cost"])
+        failure_count = int(evaluation["failure_count"])
+        trial_count = int(evaluation["trial_count"])
+    else:
+        objective, mean_scenario_cost, worst_scenario_cost, failure_count = aggregate_objective(
+            rows,
+            objective_column=objective_column,
+            expected_trial_count=expected_trial_count,
+            worst_case_weight=worst_case_weight,
+        )
+        trial_count = len(rows)
     result = IterationResult(
         iteration=iteration,
         params=params,
         objective=objective,
         mean_scenario_cost=mean_scenario_cost,
         worst_scenario_cost=worst_scenario_cost,
-        trial_count=len(rows),
+        trial_count=trial_count,
         expected_trial_count=expected_trial_count,
         failure_count=failure_count,
         returncode=completed.returncode,
@@ -663,7 +722,6 @@ def main() -> int:
     scenario_ids = select_scenario_ids(config, args.split, args.scenario_ids)
     results_dir = Path(args.results_dir)
     bo_dir = Path(args.bo_dir) if args.bo_dir else default_bo_dir(results_dir)
-    bo_dir.mkdir(parents=True, exist_ok=True)
 
     seed = args.seed if args.seed is not None else int(config.get("study", {}).get("seed", 0))
     initial_random = args.initial_random if args.initial_random is not None else max(len(specs) + 1, 2 * len(specs))
@@ -679,31 +737,115 @@ def main() -> int:
         raise SystemExit("--worst-case-weight must be in [0, 1]")
     baseline_params = None if args.no_baseline else load_params_for_specs(args.baseline_params, specs)
     local_warmup = 0 if args.no_baseline else args.local_warmup
+
+    campaign_provenance = None
+    campaign_contract = None
+    campaign_state_validation = None
+    if args.campaign_contract is not None:
+        if args.runtime_image_id is None:
+            raise SystemExit(
+                "--runtime-image-id is required with --campaign-contract"
+            )
+        campaign_contract = load_contract(args.campaign_contract)
+        patch_revision = int(
+            campaign_contract.get("contract", {}).get("patch_revision", 0)
+        )
+        frozen_patch1_resume = args.resume and patch_revision == 1
+        validate_run_settings(
+            contract=campaign_contract,
+            scenario_ids=scenario_ids,
+            repeats=args.repeats,
+            seed=seed,
+            objective_column=args.objective_column,
+            worst_case_weight=args.worst_case_weight,
+            # Generic / external history resume remains forbidden.  A patch1
+            # resume is admitted only after the campaign-state validator below
+            # proves that it is rooted in the frozen corrected iteration 0.
+            resume=args.resume and not frozen_patch1_resume,
+            no_baseline=args.no_baseline,
+            trial_dry_run=args.trial_dry_run,
+            stop_on_failure=args.stop_on_failure,
+        )
+        if frozen_patch1_resume:
+            campaign_state_validation = validate_frozen_campaign_state(
+                contract_path=args.campaign_contract,
+                scenario_path=args.scenario,
+                baseline_params_path=args.baseline_params,
+                runtime_image_id=args.runtime_image_id,
+                source_commit=args.source_commit,
+                bo_dir=bo_dir,
+                expected_optimizer_settings={
+                    "initial_random": initial_random,
+                    "local_warmup": local_warmup,
+                    "local_radius": args.local_radius,
+                    "candidate_pool": args.candidate_pool,
+                    "repeats": args.repeats,
+                    "seed": seed,
+                    "objective_column": args.objective_column,
+                    "worst_case_weight": args.worst_case_weight,
+                    "no_baseline": args.no_baseline,
+                    "trial_dry_run": args.trial_dry_run,
+                    "stop_on_failure": args.stop_on_failure,
+                },
+            )
+            campaign_provenance = campaign_state_validation["provenance"]
+        else:
+            campaign_provenance = validate_campaign_preflight(
+                contract_path=args.campaign_contract,
+                scenario_path=args.scenario,
+                baseline_params_path=args.baseline_params,
+                runtime_image_id=args.runtime_image_id,
+                source_commit=args.source_commit,
+                bo_dir=bo_dir,
+            )
+
+    bo_dir.mkdir(parents=True, exist_ok=True)
+    if args.campaign_contract is not None and not args.resume:
+        contract_source = Path(args.campaign_contract).resolve()
+        contract_snapshot = bo_dir / contract_source.name
+        shutil.copyfile(contract_source, contract_snapshot)
+        (bo_dir / f"{contract_source.name}.sha256").write_text(
+            sha256_file(contract_source) + "\n",
+            encoding="utf-8",
+        )
     history_csv = bo_dir / "history.csv"
     observations = load_history(history_csv, specs) if args.resume else []
     start_iteration = len(observations)
 
-    write_json(
-        bo_dir / "bo_config.json",
-        {
-            "scenario": args.scenario,
-            "scenario_ids": scenario_ids,
-            "split": args.split,
-            "iterations": args.iterations,
-            "no_baseline": args.no_baseline,
-            "baseline_params_file": None if args.no_baseline else args.baseline_params,
-            "baseline_params": baseline_params,
-            "initial_random": initial_random,
-            "local_warmup": local_warmup,
-            "local_radius": args.local_radius,
-            "candidate_pool": args.candidate_pool,
-            "repeats": args.repeats,
-            "seed": seed,
-            "objective_column": args.objective_column,
-            "worst_case_weight": args.worst_case_weight,
-            "search_space": [spec.__dict__ for spec in specs],
-        },
-    )
+    if not args.resume:
+        write_json(
+            bo_dir / "bo_config.json",
+            {
+                "scenario": args.scenario,
+                "scenario_ids": scenario_ids,
+                "split": args.split,
+                "iterations": args.iterations,
+                "no_baseline": args.no_baseline,
+                "baseline_params_file": (
+                    None if args.no_baseline else args.baseline_params
+                ),
+                "baseline_params": baseline_params,
+                "initial_random": initial_random,
+                "local_warmup": local_warmup,
+                "local_radius": args.local_radius,
+                "candidate_pool": args.candidate_pool,
+                "repeats": args.repeats,
+                "seed": seed,
+                "objective_column": args.objective_column,
+                "worst_case_weight": args.worst_case_weight,
+                "search_space": [spec.__dict__ for spec in specs],
+                "campaign_contract": args.campaign_contract,
+                "campaign_provenance": campaign_provenance,
+                "runtime_image_id": args.runtime_image_id,
+            },
+        )
+    elif campaign_state_validation is not None:
+        print(
+            "[run_bo] validated frozen patch1 state: "
+            f"observations={campaign_state_validation['observation_count']} "
+            f"next_iteration={campaign_state_validation['next_iteration']}",
+            flush=True,
+        )
 
     print(f"[run_bo] bo_dir={bo_dir}", flush=True)
     print(f"[run_bo] optimizing scenarios={','.join(scenario_ids)} repeats={args.repeats}", flush=True)
@@ -748,6 +890,12 @@ def main() -> int:
             container_repo_root=args.container_repo_root,
             trial_dry_run=args.trial_dry_run,
             keep_going=not args.stop_on_failure,
+            campaign_contract=args.campaign_contract,
+            baseline_params_file=(
+                None if args.no_baseline else args.baseline_params
+            ),
+            runtime_image_id=args.runtime_image_id,
+            source_commit=args.source_commit,
         )
         observations.append(
             Observation(

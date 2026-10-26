@@ -1,0 +1,117 @@
+{
+  "accepted_runtime_image": "sha256:c7dd2ca9507f72a6937b694f7318560a1f6c923035e561a9884d2b68458c16bc",
+  "accepted_source": "4ec49538912fe88ca3be569c1a787dba4c07994b",
+  "campaign": {
+    "best_iteration": 14,
+    "best_objective": 0.32607422077940834,
+    "feasible_candidates": 30,
+    "feasible_trials": 223,
+    "immutable_state_sha256": "82a7e66fdc1c9506c4ecf6e25a17c9c0b1a9c65e09952e50c22c66a99824eb96",
+    "iterations": 40,
+    "params_sha256": "1e52aed28be6c660e55fe831cb718411dd38edee3b66c670db0125d18a4fe663",
+    "path": "/home/jeong/sailboat_rl_results/bo/bo_campaign_contract_v1_patch1_20261020T042842Z",
+    "runtime_valid_trials": 239,
+    "trials": 240
+  },
+  "code_sha256": {
+    "experiments/sailboat_BO/__init__.py": "b4ea1c2d7a8cace9f57e949c43da93ad3291d701c1836a2b4e4664febc7e1a3e",
+    "experiments/sailboat_BO/bo_campaign_evaluator.py": "cdaca4770944a6af4f5551378815def97b912f18527a15612ec4c7290e4ed7ff",
+    "experiments/sailboat_BO/bo_campaign_state.py": "5584cf54c6be51f64bbe396646af613024d5d79a84627522124c295c5548d37d",
+    "experiments/sailboat_BO/common.py": "c4c59a3bfd604bdcbc7e1026652ff39fc06f642228bf875e9b5bb68aa334aee1",
+    "experiments/sailboat_BO/recover_iteration1.py": "6109d0598e1d0673b4c3cc4bc2ba6756b35e6278c0ce894eb36c164557a594d7",
+    "experiments/sailboat_BO/run_batch.py": "ef5472eb9805465c21ff0908bbe9f64f0f5006dedfc71aa31d155019b9cb5e6d",
+    "experiments/sailboat_BO/run_bo.py": "592b5b9883daeda3f72b1dd65aafba064078c1180718ac8b22ff7aee4d61c1fe",
+    "experiments/sailboat_BO/run_trial.py": "c39fe13500131e0ba28b1d1933445f3530f086624a38df42e0d0b910d11fdb72",
+    "experiments/sailboat_BO/scenario.yaml": "ad2d8d0028571b16471722fc8edbae7f9b9111b10606e59e5b23a89707189011",
+    "experiments/sailboat_BO/scenario_generalization.yaml": "2d1a52357ad606cad73da1418ac9ef3f7e44371d797a59c4819a66dc0f4dfa4c",
+    "experiments/sailboat_BO/score.py": "de38730311821b15867f7403307b43e150fb88e3de98e1ff1ab147661c229a92",
+    "experiments/sailboat_physics/virtual_sheet_validation.py": "6138a5822a23a3e5b40142be339bea4adddf252c0e89bae5cad472ad51523035",
+    "experiments/sailboat_validation/README.md": "bb943fffa4c32278ace3699245c5d84d61237ec35a3aa90f011290d19c5e6984",
+    "experiments/sailboat_validation/__init__.py": "db014a0390fd1349941190aea8c44c6b52549ad678384fe35bc8204ac4cb18ee",
+    "experiments/sailboat_validation/tests/test_validate_ab.py": "40f43d2097402ae976240d9b7f0859582f491623810c8d6ae4c8b4ab74fe3491",
+    "experiments/sailboat_validation/validate_ab.py": "ea381b3474ce12fc2c10519ce193c0882e21bf77bfa12664f310c297df76576c"
+  },
+  "created_at_utc": "2026-10-26T08:40:43.153567+00:00",
+  "format": "completed_bo_iter014_research_archive_v1",
+  "host_build": {
+    "build_exists": false,
+    "install_exists": false,
+    "validated_runtime": "image-owned /home/docker/sailboat_ws/install; do not use shared WSL install"
+  },
+  "limitations": [
+    "GitHub contains code, config, params and compact evidence, not raw logs or Docker image layers",
+    "Iteration14 is provisional Core-3 validated, not held-out/generalization approved",
+    "Known pitch/daggerboard limitations and common roll failure remain unresolved",
+    "Seed metadata does not guarantee identical Gazebo stochastic trajectories",
+    "Local raw copy on the same WSL disk is not independent disaster-recovery backup",
+    "Iteration1 recovered Crosswind r01 OPEN retained with penalty5; iteration34 runtime-invalid cost10 retained"
+  ],
+  "original_branch": "sailboat-virtual-sheet-nominal30-production",
+  "original_dirty_sha256": {
+    "experiments/sailboat_BO/bo_campaign_contract_v1.yaml": "9f0a7281a1b8e8fde41199ffdbafd7ede132317fb79152bf2d618e13d412b9b9",
+    "experiments/sailboat_BO/bo_campaign_contract_v1_patch1.yaml": "5454dfc50e4b5f7528bc7c27e531d1b3488b632f54c92b2bc1c4f99449c3f05b",
+    "experiments/sailboat_BO/bo_campaign_evaluator.py": "cdaca4770944a6af4f5551378815def97b912f18527a15612ec4c7290e4ed7ff",
+    "experiments/sailboat_BO/bo_campaign_state.py": "5584cf54c6be51f64bbe396646af613024d5d79a84627522124c295c5548d37d",
+    "experiments/sailboat_BO/recover_iteration1.py": "6109d0598e1d0673b4c3cc4bc2ba6756b35e6278c0ce894eb36c164557a594d7",
+    "experiments/sailboat_BO/run_bo.py": "592b5b9883daeda3f72b1dd65aafba064078c1180718ac8b22ff7aee4d61c1fe",
+    "experiments/sailboat_BO/tests/test_bo_campaign_evaluator.py": "69bc1e0015d475998f04623589db865225597b703cc79cd9fdcb2ea49a6496a4",
+    "experiments/sailboat_BO/tests/test_bo_campaign_state.py": "1b84cc3b5012e4f5985cfe3dff0d2ad2b74c4c776c1d3c632d0beba0db1f27ef",
+    "experiments/sailboat_BO/tests/test_recover_iteration1.py": "21f878bf375daf8f17a9d55b83c008e53acf0ef439dc092e6f93456afe2a587a",
+    "experiments/sailboat_physics/tests/test_virtual_sheet_validation.py": "ffa75833a5ee2c57cce4678f02c03e28cc425613730ff4f82c59de0944882c6f",
+    "experiments/sailboat_physics/virtual_sheet_validation.py": "6138a5822a23a3e5b40142be339bea4adddf252c0e89bae5cad472ad51523035",
+    "experiments/sailboat_validation/README.md": "bb943fffa4c32278ace3699245c5d84d61237ec35a3aa90f011290d19c5e6984",
+    "experiments/sailboat_validation/__init__.py": "db014a0390fd1349941190aea8c44c6b52549ad678384fe35bc8204ac4cb18ee",
+    "experiments/sailboat_validation/tests/test_validate_ab.py": "40f43d2097402ae976240d9b7f0859582f491623810c8d6ae4c8b4ab74fe3491",
+    "experiments/sailboat_validation/validate_ab.py": "ea381b3474ce12fc2c10519ce193c0882e21bf77bfa12664f310c297df76576c"
+  },
+  "original_status": " M experiments/sailboat_BO/run_bo.py\n?? experiments/sailboat_BO/bo_campaign_contract_v1.yaml\n?? experiments/sailboat_BO/bo_campaign_contract_v1_patch1.yaml\n?? experiments/sailboat_BO/bo_campaign_evaluator.py\n?? experiments/sailboat_BO/bo_campaign_state.py\n?? experiments/sailboat_BO/recover_iteration1.py\n?? experiments/sailboat_BO/tests/test_bo_campaign_evaluator.py\n?? experiments/sailboat_BO/tests/test_bo_campaign_state.py\n?? experiments/sailboat_BO/tests/test_recover_iteration1.py\n?? experiments/sailboat_physics/tests/test_virtual_sheet_validation.py\n?? experiments/sailboat_physics/virtual_sheet_validation.py\n?? experiments/sailboat_validation/README.md\n?? experiments/sailboat_validation/__init__.py\n?? experiments/sailboat_validation/tests/test_validate_ab.py\n?? experiments/sailboat_validation/validate_ab.py\n",
+  "original_workspace": "/home/jeong/sailboat_ws/virtual-sheet-nominal30-production-candidate",
+  "production_source_sha256": {
+    "experiments/sailboat_physics/tests/test_sheet_boom_contract.py": "e8cbdb58592b31f2c46e49654c3521fa8897fbf1e927d47db6d0ca85f5956bc4",
+    "gazebo/dave_gz_model_plugins/CMakeLists.txt": "8c45aefc09c1c225ad0410f831bb06964809b8f7d4e751b096f5915cdcb4f0da",
+    "gazebo/dave_gz_model_plugins/include/dave_gz_model_plugins/VirtualSheetActuator.hh": "0725325c67f7ca0f935e71c1322a1dbb5e8550c524172f4a9e77d0fc8f7bce52",
+    "gazebo/dave_gz_model_plugins/src/VirtualSheetActuatorSystem.cc": "40656802a48de806c0f6afef4154fe6d1c637bf0ad9c2520dd2fdcfe80c62993",
+    "gazebo/dave_gz_model_plugins/test/VirtualSheetActuator_TEST.cc": "a510fcc3a30db3262dbb354516f19fbeb94db266148600a69ee182060fff1640",
+    "models/dave_robot_models/description/sailboat/model.sdf": "5fb8d0288e39eabac47f14c92c7c62785ca4fc8021274e4744280bdf6e398ecc"
+  },
+  "raw_file_count": 2422,
+  "raw_inventory_sha256": "4717b31f122eb915cc4e6d2ade070932dca974708cdbda01552fee0c8fd3d290",
+  "raw_logical_bytes": 33895669342,
+  "raw_roots": [
+    "bo/bo_campaign_contract_v1_patch1_20261020T042842Z",
+    "bo_validation/iter014_vs_iter008_v1_20261026T055333Z",
+    "bo/bo_campaign_contract_v1_iter0_20261020T014743Z",
+    "bo/bo_patch1_iter1_recovery_20261024T090735Z",
+    "bo/final_optimized_baseline/iter_008_original_params.json",
+    "incremental_rebuild/virtual_sheet_nominal30_production_core3_r00_20261019T083721Z",
+    "incremental_rebuild/virtual_sheet_nominal30_production_core3_r01_r02_20261019T113319Z",
+    "incremental_rebuild/accepted_parents"
+  ],
+  "tests_before_commit": {
+    "bo": 80,
+    "framework_v2": 8,
+    "result": "111 PASS; offline fixtures only",
+    "validation": 23
+  },
+  "validation": {
+    "completed": 14,
+    "core3": {
+      "feasible_counts": {
+        "A": 6,
+        "B": 6
+      },
+      "improvement_percent": 11.799329216780027,
+      "mean_effective_cost": {
+        "A": 0.3918545887115951,
+        "B": 0.34561837573845466
+      },
+      "status": "PASS"
+    },
+    "final_comparison_exists": false,
+    "heldout": "FAIL: Long-Oblique r00 excessive_roll for A and B; Layer1 PASS / Layer2 BOUNDED TRANSIENT / Layer3 FAIL",
+    "path": "/home/jeong/sailboat_rl_results/bo_validation/iter014_vs_iter008_v1_20261026T055333Z",
+    "planned_maximum": 20,
+    "stop_sha256": "faca2a49c11afaf7b8825cd977aab977aeeaee05ec836a26e725dc483c6b726b",
+    "unexecuted": 6
+  }
+}

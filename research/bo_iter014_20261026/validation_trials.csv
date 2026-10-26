@@ -1,0 +1,15 @@
+slot,phase,arm,scenario,repeat,runtime_valid,layer1,layer2,layer3,feasible,effective_cost,failure_reason,max_abs_roll_deg
+01_train_crosswind_straight_r00_A,core3,A,train_crosswind_straight,0,True,PASS,BOUNDED TRANSIENT,PASS,True,0.2520957031535534,,36.65119348184204
+02_train_crosswind_straight_r00_B,core3,B,train_crosswind_straight,0,True,PASS,BOUNDED TRANSIENT,PASS,True,0.3051160136341047,,42.55486153545959
+03_train_crosswind_straight_r01_B,core3,B,train_crosswind_straight,1,True,PASS,BOUNDED TRANSIENT,PASS,True,0.315331018974735,,42.20534962778061
+04_train_crosswind_straight_r01_A,core3,A,train_crosswind_straight,1,True,PASS,BOUNDED TRANSIENT,PASS,True,0.2954399112444677,,41.611866642930806
+05_train_upwind_tack_r00_A,core3,A,train_upwind_tack,0,True,PASS,BOUNDED TRANSIENT,PASS,True,0.5131186460681108,,12.779323763292686
+06_train_upwind_tack_r00_B,core3,B,train_upwind_tack,0,True,PASS,BOUNDED TRANSIENT,PASS,True,0.41331907701914594,,13.933026527208765
+07_train_upwind_tack_r01_B,core3,B,train_upwind_tack,1,True,PASS,BOUNDED TRANSIENT,PASS,True,0.4132707103999229,,14.433461281778781
+08_train_upwind_tack_r01_A,core3,A,train_upwind_tack,1,True,PASS,BOUNDED TRANSIENT,PASS,True,0.5070184966138078,,12.833964416848637
+09_train_dogleg_r00_A,core3,A,train_dogleg,0,True,PASS,BOUNDED TRANSIENT,PASS,True,0.3846467025147351,,32.92199469110741
+10_train_dogleg_r00_B,core3,B,train_dogleg,0,True,PASS,BOUNDED TRANSIENT,PASS,True,0.31409435778873557,,31.580284757748526
+11_train_dogleg_r01_B,core3,B,train_dogleg,1,True,PASS,BOUNDED TRANSIENT,PASS,True,0.312579076614084,,31.205732698976913
+12_train_dogleg_r01_A,core3,A,train_dogleg,1,True,PASS,BOUNDED TRANSIENT,PASS,True,0.398808072674896,,35.03811794944571
+13_eval_long_oblique_r00_A,heldout,A,eval_long_oblique,0,True,PASS,BOUNDED TRANSIENT,FAIL,False,5.0,excessive_roll,52.29010163503273
+14_eval_long_oblique_r00_B,heldout,B,eval_long_oblique,0,True,PASS,BOUNDED TRANSIENT,FAIL,False,5.0,excessive_roll,53.1710961023607

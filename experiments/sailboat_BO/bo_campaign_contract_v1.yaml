@@ -1,0 +1,84 @@
+contract:
+  id: bo_campaign_contract_v1
+  version: 1
+  fresh_history_only: true
+
+accepted_parent:
+  source_commit: 4ec49538912fe88ca3be569c1a787dba4c07994b
+  runtime_image_id: sha256:c7dd2ca9507f72a6937b694f7318560a1f6c923035e561a9884d2b68458c16bc
+
+scenario:
+  path: experiments/sailboat_BO/scenario.yaml
+  sha256: ad2d8d0028571b16471722fc8edbae7f9b9111b10606e59e5b23a89707189011
+  scenario_ids:
+    - train_crosswind_straight
+    - train_upwind_tack
+    - train_dogleg
+  repeats_per_scenario: 2
+
+framework:
+  version: v2
+  evaluator_path: experiments/sailboat_physics/virtual_sheet_validation.py
+  evaluator_sha256: 6138a5822a23a3e5b40142be339bea4adddf252c0e89bae5cad472ad51523035
+  required_layer1: PASS
+  required_layer2: BOUNDED TRANSIENT
+  required_layer3: PASS
+  mechanical_limit_deg: 90.0
+  maximum_allowance_deg: 45.00010522957486
+  penetration_reference_deg: 15.0
+
+optimization:
+  seed: 42
+  historical_observations_allowed: false
+  baseline_policy: fresh_iteration_0_reference
+  baseline_name: iter_008
+  baseline_params_sha256: ec830d81b7be876685e1bd93f5e096bbd9971926cca3e2c01880939866393b12
+  objective_column: scenario_cost
+  worst_case_weight: 0.0
+  incumbent_order:
+    - failure_count
+    - objective
+
+penalty_policy:
+  framework_failure_cost: 5.0
+  runtime_invalid_or_missing_artifact_cost: 10.0
+  maximum_failure_count_per_trial: 1
+  candidate_feasible_only_if_all_trials_feasible: true
+
+evaluation:
+  score_path: experiments/sailboat_BO/score.py
+  score_sha256: de38730311821b15867f7403307b43e150fb88e3de98e1ff1ab147661c229a92
+  evaluation_no_go_angle_deg: 60.0
+  optimized_parameter: SAIL_NO_GO_ANGLE
+  optimized_parameter_affects_controller_only: true
+  objective_weights:
+    time_term: 0.35
+    xte_term: 0.25
+    progress_term: 0.20
+    control_term: 0.10
+    roll_term: 0.10
+    sailing_term: 0.15
+  control_term:
+    compatibility_output_field: control_term
+    documented_meaning: command_activity_term
+    formula: clip((rudder_total_variation_rad + 0.5 * sail_total_variation_rad) / 40.0, 0.0, 1.0)
+
+search_space:
+  - {name: SAIL_ANGLE_IDEAL, type: float, low: 20.0, high: 50.0}
+  - {name: SAIL_NO_GO_ANGLE, type: float, low: 40.0, high: 70.0}
+  - {name: SAIL_XTRACK_MAX, type: float, low: 4.0, high: 20.0}
+  - {name: ATC_SAIL_P, type: float, low: 0.03, high: 0.40}
+  - {name: ATC_STR_ANG_P, type: float, low: 0.8, high: 4.0}
+  - {name: ATC_STR_RAT_FF, type: float, low: 0.10, high: 1.20}
+
+logging:
+  preserve_raw_telemetry_until_evaluator_completes: true
+  compact_trial_evaluation: physics_diagnostics/bo_campaign_evaluation_v1.json
+  compact_candidate_evaluation: candidate_evaluation.json
+  retain:
+    - campaign_manifest_snapshot
+    - candidate_params
+    - artifact_sha256
+    - trial_layer_results
+    - fixed_no_go_objective
+  automatic_long_term_cleanup: false

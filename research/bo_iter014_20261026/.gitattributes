@@ -1,0 +1,2 @@
+# Preserve original CSV bytes/checksums; do not normalize archived CRLF to LF.
+*.csv -text whitespace=cr-at-eol
